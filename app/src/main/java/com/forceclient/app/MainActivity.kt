@@ -95,7 +95,7 @@ private fun ForceCApp(context: Context) {
         if (uri != null) {
             val result = importConfig(context, uri)
             importMessage = result.second
-            if (result.first != null) importedConfig = result.first
+            if (result.first != null) { importedConfig = result.first; servers = loadServerProfiles(context) }
         }
     }
 
