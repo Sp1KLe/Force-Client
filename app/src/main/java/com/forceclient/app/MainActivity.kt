@@ -185,7 +185,7 @@ private fun ForceCApp(context: Context) {
             when (page) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
+                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing)
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
                     pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
@@ -358,7 +358,7 @@ private fun countProfiles(raw: String): Int {
 
 @Composable
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
-                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean) {
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Spacer(Modifier.height(18.dp))
