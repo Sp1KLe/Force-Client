@@ -183,7 +183,6 @@ private fun ForceCApp(context: Context) {
     val visibleServers = if (sorted) servers.sortedBy { it.ping ?: Int.MAX_VALUE } else servers
     fun checkPings() {
         if (pinging) return
-        val currentServers = servers
         val configFile = File(context.filesDir, "configs/active_config.txt")
         if (!configFile.isFile) {
             importMessage = "Сначала импортируйте конфигурацию или подписку."
@@ -198,30 +197,19 @@ private fun ForceCApp(context: Context) {
                 val raw = configFile.readText().trim()
                 val results = XrayEngine.pingProfiles(raw)
                 val reachable = results.filter { it.success && it.delayMs != null }
+                checked = results.map { item ->
+                    Server(item.tag.ifBlank { "Узел" }, item.host, item.delayMs, item.host, item.port)
+                }
                 if (reachable.isEmpty()) {
                     failure = "Xray ping не получил ответа ни от одного узла. Проверьте серверы или попробуйте другую сеть."
-                    checked = if (currentServers.isNotEmpty()) currentServers.map { it.copy(ping = null) } else {
-                        results.map { Server(it.tag, it.host, null, it.host, it.port) }
-                    }
                 } else {
-                    checked = if (currentServers.isEmpty()) {
-                        results.map { Server(it.tag, it.host, it.delayMs, it.host, it.port) }
-                    } else {
-                        currentServers.map { server ->
-                            val result = results.firstOrNull {
-                                it.host.equals(server.host, ignoreCase = true) &&
-                                    it.port == server.port && it.success
-                            }
-                            server.copy(ping = result?.delayMs)
-                        }
-                    }
                     val best = reachable.minByOrNull { it.delayMs!! }
                     failure = "Проверено Xray-core: доступно ${reachable.size} из ${results.size} узлов" +
                         (best?.let { ". Самый быстрый: ${it.tag} · ${it.delayMs} мс." } ?: ".")
                 }
             } catch (e: Exception) {
                 failure = e.message ?: "Не удалось проверить серверы через Xray-core."
-                checked = currentServers.map { it.copy(ping = null) }
+                checked = emptyList()
             }
             Handler(Looper.getMainLooper()).post {
                 servers = checked
