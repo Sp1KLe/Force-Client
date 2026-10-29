@@ -1,6 +1,8 @@
 package com.forceclient.app
 
 import org.json.JSONObject
+import java.net.InetSocketAddress
+import java.net.Socket
 
 /**
  * Small reflection-based adapter for the official gomobile libXray AAR.
@@ -185,11 +187,30 @@ object XrayEngine {
     }
 
     fun selectFastestProfile(text: String): FastestProfile {
-        val best = pingProfiles(text)
-            .filter { it.success && it.delayMs != null }
-            .minByOrNull { it.delayMs!! }
-            ?: throw IllegalStateException("Ни один узел не прошёл проверку Xray ping. Проверьте подписку или доступ к серверам.")
-        return FastestProfile(best.outbound, best.tag, best.host, best.port, best.delayMs!!)
+        val outbounds = loadOutbounds(text)
+        normalizeTags(outbounds)
+        val reachable = mutableListOf<FastestProfile>()
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val endpoint = endpointOf(outbound)
+            if (endpoint.first.isBlank() || endpoint.second !in 1..65535) continue
+            runCatching {
+                val elapsed = Socket().use { socket ->
+                    val started = System.nanoTime()
+                    socket.connect(InetSocketAddress(endpoint.first, endpoint.second), 2500)
+                    ((System.nanoTime() - started) / 1_000_000L).toInt()
+                }
+                reachable += FastestProfile(
+                    JSONObject(outbound.toString()),
+                    outbound.optString("tag"),
+                    endpoint.first,
+                    endpoint.second,
+                    elapsed
+                )
+            }
+        }
+        return reachable.minByOrNull { it.delayMs }
+            ?: throw IllegalStateException("TCP-проверка не нашла доступных серверов. Проверьте сеть или выберите другой узел.")
     }
 
     private fun loadOutbounds(text: String): org.json.JSONArray {
