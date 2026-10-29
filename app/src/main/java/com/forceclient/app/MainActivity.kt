@@ -44,6 +44,12 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.horizontalScroll
@@ -58,9 +64,9 @@ import java.io.File
 import java.io.IOException
 
 private val LocalForceAccent = compositionLocalOf { Color(0xFFB9825D) }
-private val Cream = Color(0xFFFFE0C2)
-private val DarkBg = Color(0xFF17110F)
-private val DarkCard = Color(0xFF261B17)
+private val Cream = Color(0xFFF2F0EB)
+private val DarkBg = Color(0xFF1B1B1B)
+private val DarkCard = Color(0xFF292929)
 private val LightBg = Color(0xFFFFF8F3)
 private val LightCard = Color(0xFFF2E4D9)
 private val Ink = Color(0xFF281A14)
@@ -290,9 +296,9 @@ private fun ForceCApp(context: Context) {
                     onServers = { page = Page.Servers }, onSettings = { page = Page.Settings }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing, vpnState = vpnState, onConnect = { toggleVpn() })
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
                     pingChecked, sorted, pinging, selectedServerKey, onSelectServer = { server ->
-                        selectedServerKey = server.host + ":" + server.port
-                        prefs.edit().putString("selected_server_host", server.host).putInt("selected_server_port", server.port).apply()
-                        importMessage = "Выбран сервер: " + server.name
+                        selectedServerKey = server?.let { it.host + ":" + it.port } ?: "auto"
+                        if (server == null) prefs.edit().remove("selected_server_host").remove("selected_server_port").apply() else prefs.edit().putString("selected_server_host", server.host).putInt("selected_server_port", server.port).apply()
+                        importMessage = if (server == null) "Автоматический выбор самого быстрого сервера включён." else "Выбран сервер: " + server.name
                     }, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
@@ -482,7 +488,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
         ) {
             Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF242424), modifier = Modifier.size(38.dp)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.SignalCellularAlt, null, tint = Color(0xFF7778E8), modifier = Modifier.size(26.dp))
+                    Icon(painterResource(com.forceclient.app.R.drawable.ic_forcec), null, modifier = Modifier.size(30.dp))
                 }
             }
             Spacer(Modifier.width(9.dp))
@@ -588,7 +594,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
 @Composable
 private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Color, servers: List<Server>,
                         config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean, pinging: Boolean,
-                        selectedServerKey: String, onSelectServer: (Server) -> Unit, onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+                        selectedServerKey: String, onSelectServer: (Server?) -> Unit, onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Серверы", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -618,6 +624,16 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
         }, color = muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
         if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Surface(onClick = { onSelectServer(null) }, color = if (selectedServerKey == "auto") LocalForceAccent.current.copy(alpha = .20f) else card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(), border = if (selectedServerKey == "auto") BorderStroke(1.dp, LocalForceAccent.current) else null) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AutoMode, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) { Text("Автоматически", color = text, fontWeight = FontWeight.SemiBold); Text("Выбрать самый быстрый узел", color = muted, fontSize = 11.sp) }
+                        if (selectedServerKey == "auto") Icon(Icons.Default.CheckCircle, null, tint = LocalForceAccent.current)
+                    }
+                }
+            }
             items(servers) { server ->
                 Surface(onClick = { onSelectServer(server) }, color = if (server.host + ":" + server.port == selectedServerKey) LocalForceAccent.current.copy(alpha = .20f) else card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(), border = if (server.host + ":" + server.port == selectedServerKey) BorderStroke(1.dp, LocalForceAccent.current) else null) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
