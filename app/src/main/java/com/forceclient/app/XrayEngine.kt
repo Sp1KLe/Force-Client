@@ -144,6 +144,28 @@ object XrayEngine {
         return result
     }
 
+    fun selectProfileByEndpoint(text: String, host: String, port: Int): FastestProfile {
+        val outbounds = loadOutbounds(text)
+        normalizeTags(outbounds)
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val endpoint = endpointOf(outbound)
+            if (endpoint.first.equals(host, ignoreCase = true) && endpoint.second == port) {
+                val ping = pingProfiles(text).firstOrNull {
+                    it.host.equals(host, ignoreCase = true) && it.port == port
+                }
+                return FastestProfile(
+                    outbound = JSONObject(outbound.toString()),
+                    tag = outbound.optString("tag"),
+                    host = endpoint.first,
+                    port = endpoint.second,
+                    delayMs = ping?.delayMs ?: -1
+                )
+            }
+        }
+        throw IllegalStateException("Выбранный сервер не найден в текущей конфигурации. Обновите список серверов.")
+    }
+
     fun selectFastestProfile(text: String): FastestProfile {
         val best = pingProfiles(text)
             .filter { it.success && it.delayMs != null }
