@@ -13,8 +13,8 @@ ForceCLIENT is an Android VPN client project with a Material 3 interface.
 ## Build
 Open this repository in Android Studio with Android SDK installed, sync Gradle, then run the `app` configuration.
 
-## VPN status
-The VPN engine is not integrated yet. Importing a subscription only downloads and stores configuration data; it does not connect a VPN tunnel. Server ping and subscription refresh controls are also not fully implemented.
+## Network engine
+The build workflow downloads the pinned official `libXray.aar` release and includes it in the Android app. `XrayEngine.kt` provides a bridge to Xray-core for share-link conversion, engine version checks, config validation, and start/stop requests. The Android system VPN tunnel and packet forwarding are a separate integration stage; until that is implemented and tested, the app must not claim that device traffic is protected by a VPN.
 
 ## Identity
 App name: ForceCLIENT  
