@@ -322,7 +322,13 @@ private fun loadImportedConfig(context: Context): ImportedConfig? {
 
 private fun loadServerProfiles(context: Context): List<Server> {
     val file = File(context.filesDir, "configs/active_config.txt")
-    return if (file.exists()) parseServerProfiles(file.readText()) else emptyList()
+    if (!file.exists()) return emptyList()
+    val raw = file.readText()
+    if (raw.trimStart().startsWith("{")) {
+        val fromJson = runCatching { XrayEngine.listProfiles(raw).map { Server(it.tag, it.host, null, it.host, it.port) } }.getOrDefault(emptyList())
+        if (fromJson.isNotEmpty()) return fromJson
+    }
+    return parseServerProfiles(raw)
 }
 
 private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, String> {
