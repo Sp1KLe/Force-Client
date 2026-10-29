@@ -62,6 +62,7 @@ class ForceVpnService : VpnService() {
                     ?: throw IllegalStateException("В libXray отсутствует безопасная настройка DNS.")
                 setDns.invoke(null, protectController, "1.1.1.1:53")
 
+                val config = normalizeConfig(buildConfig(JSONArray().put(selected.outbound)))
                 val builder = Builder()
                     .setSession("ForceCLIENT")
                     .setMtu(1500)
