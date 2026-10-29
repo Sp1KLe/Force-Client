@@ -291,7 +291,11 @@ private fun ForceCApp(context: Context) {
                 }
             )
         }
-        Scaffold(containerColor = bg, bottomBar = {
+        Scaffold(modifier = Modifier.drawBehind {
+            drawCircle(Color(0xFF858585).copy(alpha = 0.065f), radius = size.width * 0.72f, center = Offset(size.width * 0.95f, size.height * 0.20f))
+            drawCircle(Color(0xFF858585).copy(alpha = 0.04f), radius = size.width * 0.46f, center = Offset(size.width * 0.12f, size.height * 0.82f))
+            drawRoundRect(Color(0xFF858585).copy(alpha = 0.025f), topLeft = Offset(size.width * 0.25f, size.height * 0.45f), size = Size(size.width * 0.8f, size.height * 0.2f), cornerRadius = CornerRadius(48f, 48f))
+        }, containerColor = bg, bottomBar = {
             if (page != Page.Home) NavigationBar(containerColor = card) {
                 NavigationBarItem(page == Page.Home, { page = Page.Home }, icon = { Icon(Icons.Default.Shield, null) }, label = { Text("Главная") })
                 NavigationBarItem(page == Page.Servers, { page = Page.Servers }, icon = { Icon(Icons.Default.Public, null) }, label = { Text("Серверы") })
