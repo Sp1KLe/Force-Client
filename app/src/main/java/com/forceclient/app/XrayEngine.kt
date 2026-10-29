@@ -89,6 +89,27 @@ object XrayEngine {
         val delayMs: Int
     )
 
+    fun listProfiles(text: String): List<ProfilePing> {
+        val outbounds = loadOutbounds(text)
+        normalizeTags(outbounds)
+        val result = mutableListOf<ProfilePing>()
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val endpoint = endpointOf(outbound)
+            if (endpoint.first.isNotBlank() && endpoint.second in 1..65535) {
+                result += ProfilePing(
+                    tag = outbound.optString("tag"),
+                    host = endpoint.first,
+                    port = endpoint.second,
+                    delayMs = null,
+                    success = false,
+                    outbound = JSONObject(outbound.toString())
+                )
+            }
+        }
+        return result
+    }
+
     /**
      * Uses libXray's pingBatch, which measures a real HTTP request through each
      * Xray outbound. It is not a TCP-port-only test. API accepts up to 5 nodes
