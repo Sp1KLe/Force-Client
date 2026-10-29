@@ -96,6 +96,7 @@ private fun ForceCApp(context: Context) {
     var refreshing by remember { mutableStateOf(false) }
     var pinging by remember { mutableStateOf(false) }
     var servers by remember { mutableStateOf(loadServerProfiles(context)) }
+    var selectedServerKey by remember { mutableStateOf(prefs.getString("selected_server_host", null)?.let { it + ":" + prefs.getInt("selected_server_port", 0) } ?: "auto") }
     var vpnState by remember { mutableStateOf(ForceVpnService.STATE_DISCONNECTED) }
 
     DisposableEffect(context) {
@@ -129,6 +130,11 @@ private fun ForceCApp(context: Context) {
     }
 
     fun toggleVpn() {
+        if (vpnState == ForceVpnService.STATE_PAUSED) {
+            context.startService(Intent(context, ForceVpnService::class.java).setAction(ForceVpnService.ACTION_RESUME))
+            vpnState = "connecting"
+            return
+        }
         if (vpnState == ForceVpnService.STATE_CONNECTED || vpnState == "connecting") {
             context.startService(Intent(context, ForceVpnService::class.java).setAction(ForceVpnService.ACTION_STOP))
             vpnState = ForceVpnService.STATE_DISCONNECTED
@@ -194,19 +200,17 @@ private fun ForceCApp(context: Context) {
             var checked: List<Server> = emptyList()
             var failure: String? = null
             try {
-                val raw = configFile.readText().trim()
-                val results = XrayEngine.pingProfiles(raw)
-                val reachable = results.filter { it.success && it.delayMs != null }
-                checked = results.map { item ->
-                    Server(item.tag.ifBlank { "Узел" }, item.host, item.delayMs, item.host, item.port)
+                checked = servers.map { server ->
+                    var delay: Int? = null
+                    runCatching { Socket().use { socket ->
+                        val startedAt = System.nanoTime()
+                        socket.connect(InetSocketAddress(server.host, server.port), 2500)
+                        delay = ((System.nanoTime() - startedAt) / 1_000_000L).toInt()
+                    } }
+                    server.copy(ping = delay)
                 }
-                if (reachable.isEmpty()) {
-                    failure = "Xray ping не получил ответа ни от одного узла. Проверьте серверы или попробуйте другую сеть."
-                } else {
-                    val best = reachable.minByOrNull { it.delayMs!! }
-                    failure = "Проверено Xray-core: доступно ${reachable.size} из ${results.size} узлов" +
-                        (best?.let { ". Самый быстрый: ${it.tag} · ${it.delayMs} мс." } ?: ".")
-                }
+                val reachable = checked.filter { it.ping != null }
+                failure = if (reachable.isEmpty()) "TCP-проверка: серверные порты недоступны. TCP-пинг не проверяет авторизацию VPN." else "TCP-пинг: доступно " + reachable.size + " из " + checked.size + " серверов. Быстрейший: " + reachable.minByOrNull { it.ping!! }?.let { it.name + " · " + it.ping + " мс" }
             } catch (e: Exception) {
                 failure = e.message ?: "Не удалось проверить серверы через Xray-core."
                 checked = emptyList()
@@ -285,7 +289,11 @@ private fun ForceCApp(context: Context) {
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onServers = { page = Page.Servers }, onSettings = { page = Page.Settings }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing, vpnState = vpnState, onConnect = { toggleVpn() })
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
-                    pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
+                    pingChecked, sorted, pinging, selectedServerKey, onSelectServer = { server ->
+                        selectedServerKey = server.host + ":" + server.port
+                        prefs.edit().putString("selected_server_host", server.host).putInt("selected_server_port", server.port).apply()
+                        importMessage = "Выбран сервер: " + server.name
+                    }, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
                 Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, accentColor, onAccent = { showAccentDialog = true }, onPreset = { accentArgb = it; prefs.edit().putInt("accent_color", it).apply() }, onTheme = {
@@ -580,7 +588,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
 @Composable
 private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Color, servers: List<Server>,
                         config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean, pinging: Boolean,
-                        onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+                        selectedServerKey: String, onSelectServer: (Server) -> Unit, onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Серверы", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -611,20 +619,20 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
         if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(servers) { server ->
-                Surface(color = card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Surface(onClick = { onSelectServer(server) }, color = if (server.host + ":" + server.port == selectedServerKey) LocalForceAccent.current.copy(alpha = .20f) else card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth(), border = if (server.host + ":" + server.port == selectedServerKey) BorderStroke(1.dp, LocalForceAccent.current) else null) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Dns, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
+                        Icon(if (server.host + ":" + server.port == selectedServerKey) Icons.Default.RadioButtonChecked else Icons.Default.Dns, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(server.name, color = text, fontWeight = FontWeight.SemiBold)
                             Text(server.host + ":" + server.port, color = muted, fontSize = 11.sp)
                         }
-                        Text(server.ping?.let { "$it ms" } ?: "— ms", color = text, fontWeight = FontWeight.Bold)
+                        Column(horizontalAlignment = Alignment.End) { Text(server.ping?.let { "$it ms" } ?: "— ms", color = text, fontWeight = FontWeight.Bold); if (server.host + ":" + server.port == selectedServerKey) Text("ВЫБРАН", color = LocalForceAccent.current, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
         }
-        if (pinging) Text("Проверяю задержку через каждый прокси-узел…", color = muted, fontSize = 12.sp)
+        if (pinging) Text("TCP-пинг проверяет доступность порта, а не полную авторизацию VPN.", color = muted, fontSize = 12.sp)
     }
 }
 
