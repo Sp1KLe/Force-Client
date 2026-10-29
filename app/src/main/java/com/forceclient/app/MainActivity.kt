@@ -3,6 +3,11 @@ package com.forceclient.app
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -56,6 +61,9 @@ private fun ForceCApp(context: Context) {
     var refreshCount by remember { mutableIntStateOf(0) }
     var importMessage by remember { mutableStateOf<String?>(null) }
     var importedConfig by remember { mutableStateOf(loadImportedConfig(context)) }
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var subscriptionUrl by remember { mutableStateOf("") }
+    var urlLoading by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -78,6 +86,46 @@ private fun ForceCApp(context: Context) {
 
     MaterialTheme(colorScheme = if (dark) darkColorScheme(primary = Cream, secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)
         else lightColorScheme(primary = Color(0xFF78492F), secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)) {
+        if (showUrlDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!urlLoading) showUrlDialog = false },
+                title = { Text("Импорт по ссылке") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Вставьте HTTPS-ссылку на подписку. ForceC попробует скачать список конфигураций.")
+                        OutlinedTextField(
+                            value = subscriptionUrl,
+                            onValueChange = { subscriptionUrl = it },
+                            label = { Text("HTTPS-ссылка") },
+                            placeholder = { Text("https://example.com/subscription") },
+                            singleLine = true,
+                            enabled = !urlLoading,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (urlLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !urlLoading && subscriptionUrl.isNotBlank(), onClick = {
+                        urlLoading = true
+                        importMessage = "Загружаю подписку…"
+                        val url = subscriptionUrl.trim()
+                        Thread {
+                            val result = importConfigFromUrl(context, url)
+                            Handler(Looper.getMainLooper()).post {
+                                urlLoading = false
+                                importMessage = result.second
+                                if (result.first != null) importedConfig = result.first
+                                if (result.first != null) showUrlDialog = false
+                            }
+                        }.start()
+                    }) { Text("Импортировать") }
+                },
+                dismissButton = {
+                    TextButton(enabled = !urlLoading, onClick = { showUrlDialog = false }) { Text("Отмена") }
+                }
+            )
+        }
         Scaffold(containerColor = bg, bottomBar = {
             NavigationBar(containerColor = card) {
                 NavigationBarItem(page == Page.Home, { page = Page.Home }, icon = { Icon(Icons.Default.Shield, null) }, label = { Text("Главная") })
@@ -88,11 +136,11 @@ private fun ForceCApp(context: Context) {
             when (page) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onServers = { page = Page.Servers }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
+                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, servers, importedConfig, importMessage,
                     pingChecked, sorted, onPing = { pingChecked = true }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onRefresh = { refreshCount++ }, refreshCount = refreshCount)
+                    onImportUrl = { showUrlDialog = true }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
                 Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = {
                     dark = it
                     prefs.edit().putBoolean("dark_theme", it).apply()
@@ -146,6 +194,67 @@ private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, Stri
     }
 }
 
+
+private fun importConfigFromUrl(context: Context, value: String): Pair<ImportedConfig?, String> {
+    var connection: HttpURLConnection? = null
+    return try {
+        val uri = Uri.parse(value)
+        if (!value.startsWith("https://", true) || uri.host.isNullOrBlank()) {
+            throw IOException("Для безопасности поддерживаются только корректные HTTPS-ссылки.")
+        }
+        connection = (URL(value).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 12000
+            readTimeout = 15000
+            instanceFollowRedirects = true
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "ForceCLIENT/0.3")
+            setRequestProperty("Accept", "text/plain, application/json, */*")
+        }
+        val code = connection.responseCode
+        if (code !in 200..299) throw IOException("Сервер вернул HTTP $code")
+        val bytes = connection.inputStream.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                total += n
+                if (total > MAX_CONFIG_BYTES) throw IOException("Подписка больше 1 МБ")
+                output.write(buffer, 0, n)
+            }
+            output.toByteArray()
+        }
+        var raw = bytes.toString(Charsets.UTF_8).trim()
+        if (raw.isBlank()) throw IOException("Ссылка вернула пустой ответ.")
+        if (!looksLikeConfig(raw)) {
+            val decoded = runCatching {
+                Base64.getMimeDecoder().decode(raw.replace("-", "+").replace("_", "/")).toString(Charsets.UTF_8).trim()
+            }.getOrNull()
+            if (decoded != null && looksLikeConfig(decoded)) raw = decoded
+        }
+        if (!looksLikeConfig(raw)) throw IOException("По ссылке не найдена подписка с поддерживаемыми конфигурациями (VLESS, VMess, Trojan, Shadowsocks или JSON).")
+        val name = uri.host?.take(80)?.let { "$it-subscription.txt" } ?: "subscription.txt"
+        val folder = File(context.filesDir, "configs").apply { mkdirs() }
+        File(folder, "active_config.txt").writeText(raw)
+        File(folder, "active_name.txt").writeText(name)
+        val item = ImportedConfig(name, detectFormat(name, raw), countProfiles(raw))
+        item to "Подписка загружена. Профилей найдено: ${item.profiles}. Для подключения ещё нужен VPN-движок."
+    } catch (e: Exception) {
+        null to (e.message ?: "Не удалось загрузить подписку.")
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private fun looksLikeConfig(raw: String): Boolean {
+    val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
+    return raw.startsWith("{") || raw.startsWith("[") || lines.any { line ->
+        line.startsWith("vless://", true) || line.startsWith("vmess://", true) ||
+            line.startsWith("trojan://", true) || line.startsWith("ss://", true)
+    }
+}
+
 private fun detectFormat(name: String, raw: String): String = when {
     raw.startsWith("vless://", true) -> "VLESS-ссылка"
     raw.startsWith("vmess://", true) -> "VMess-ссылка"
@@ -165,7 +274,7 @@ private fun countProfiles(raw: String): Int {
 
 @Composable
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
-                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Spacer(Modifier.height(18.dp))
@@ -192,6 +301,10 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                     Spacer(Modifier.height(20.dp))
                     Button(onClick = onImport, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Импортировать конфиг", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = onImportUrl, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
+                        Icon(Icons.Default.Link, null); Spacer(Modifier.width(8.dp)); Text("Импортировать по ссылке")
                     }
                 }
             }
@@ -237,7 +350,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
 @Composable
 private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Color, servers: List<Server>,
                         config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean,
-                        onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+                        onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Серверы", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -254,6 +367,9 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
             Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(6.dp)); Text("Импортировать конфиг")
+        }
+        OutlinedButton(onClick = onImportUrl, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+            Icon(Icons.Default.Link, null); Spacer(Modifier.width(6.dp)); Text("Импортировать по ссылке")
         }
         OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
             Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Обновить конфигурации")
