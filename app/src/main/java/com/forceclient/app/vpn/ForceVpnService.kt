@@ -54,12 +54,10 @@ class ForceVpnService : VpnService() {
                 val core = findCoreClass()
                 engineClass = core
                 val protectController = registerSocketProtection(core)
-                if (protectController != null) {
-                    runCatching {
-                        core.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 }
-                            ?.invoke(null, protectController, "1.1.1.1:53")
-                    }
-                }
+                    ?: throw IllegalStateException("Не удалось настроить защиту сокетов Xray. Запуск остановлен, чтобы избежать сетевой петли.")
+                val setDns = core.methods.firstOrNull { it.name.equals("setDNS", ignoreCase = true) && it.parameterTypes.size == 2 }
+                    ?: throw IllegalStateException("В libXray отсутствует безопасная настройка DNS.")
+                setDns.invoke(null, protectController, "1.1.1.1:53")
                 var config = if (raw.startsWith("{") && runCatching { JSONObject(raw).has("outbounds") }.getOrDefault(false)) {
                     normalizeConfig(JSONObject(raw))
                 } else {
@@ -232,8 +230,8 @@ class ForceVpnService : VpnService() {
         val register = core.methods.firstOrNull {
             it.name == "registerDialerController" && it.parameterTypes.size == 1 &&
                 it.parameterTypes[0].isAssignableFrom(controllerClass)
-        }
-        register?.invoke(null, controller)
+        } ?: throw IllegalStateException("В libXray отсутствует registerDialerController.")
+        register.invoke(null, controller)
         return controller
     }
 
