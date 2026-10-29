@@ -84,7 +84,7 @@ private fun ForceCApp(context: Context) {
             val result = importConfigFromUrl(context, savedUrl)
             Handler(Looper.getMainLooper()).post {
                 refreshing = false
-                importMessage = if (result.first != null) "Подписка обновлена: " + result.first.profiles + " профилей." else result.second
+                importMessage = if (result.first != null) "Подписка обновлена: " + (result.first?.profiles ?: 0) + " профилей." else result.second
                 if (result.first != null) { importedConfig = result.first; servers = loadServerProfiles(context) }
                 refreshCount++
             }
@@ -479,7 +479,6 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
             }
         }
         if (pinging) Text("Проверяю TCP-доступность узлов…", color = muted, fontSize = 12.sp)
-        if (refreshing) Text("Обновляю подписку…", color = muted, fontSize = 12.sp)
     }
 }
 
