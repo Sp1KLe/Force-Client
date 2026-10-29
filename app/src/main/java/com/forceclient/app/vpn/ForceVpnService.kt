@@ -259,6 +259,7 @@ class ForceVpnService : VpnService() {
     }
 
     private fun broadcastState(state: String, message: String) {
+        getSharedPreferences("forcec_preferences", MODE_PRIVATE).edit().putBoolean("vpn_active", state == STATE_CONNECTED).apply()
         sendBroadcast(Intent(ACTION_STATE).setPackage(packageName).putExtra(EXTRA_STATE, state).putExtra(EXTRA_MESSAGE, message))
     }
 
