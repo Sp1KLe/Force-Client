@@ -53,6 +53,12 @@ class ForceVpnService : VpnService() {
                 val core = findCoreClass()
                 engineClass = core
                 val protectController = registerSocketProtection(core)
+                if (protectController != null) {
+                    runCatching {
+                        core.methods.firstOrNull { it.name == "setDNS" && it.parameterTypes.size == 2 }
+                            ?.invoke(null, protectController, "1.1.1.1:53")
+                    }
+                }
                 val converted = invokeCore(core, "convertShareLinksToXrayJson", JSONObject().put("text", raw))
                 val outbounds = converted.optJSONObject("data")?.optJSONArray("outbounds")
                 val config = if (raw.startsWith("{") && runCatching { JSONObject(raw).has("outbounds") }.getOrDefault(false)) {
@@ -89,7 +95,7 @@ class ForceVpnService : VpnService() {
                 while (!stopping && tunnel != null) Thread.sleep(750)
             } catch (e: Exception) {
                 broadcastState(STATE_ERROR, e.message ?: "Не удалось запустить сетевой движок")
-                stopTunnel()
+                stopTunnel(announce = false)
             }
         }, "ForceC-Xray-start").start()
     }
@@ -157,7 +163,7 @@ class ForceVpnService : VpnService() {
         return controller
     }
 
-    private fun stopTunnel() {
+    private fun stopTunnel(announce: Boolean = true) {
         stopping = true
         val core = engineClass
         if (core != null) {
@@ -165,7 +171,7 @@ class ForceVpnService : VpnService() {
         }
         runCatching { tunnel?.close() }
         tunnel = null
-        broadcastState(STATE_DISCONNECTED, "Отключено")
+        if (announce) broadcastState(STATE_DISCONNECTED, "Отключено")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
