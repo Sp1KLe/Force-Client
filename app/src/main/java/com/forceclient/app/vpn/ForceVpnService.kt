@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.lang.reflect.Proxy
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Android VPN lifecycle for the bundled libXray engine.
@@ -75,6 +76,8 @@ class ForceVpnService : VpnService() {
                     .setMtu(1500)
                     .addAddress("10.111.0.1", 30)
                     .addRoute("0.0.0.0", 0)
+                    .addAddress("fd00:fc::1", 126)
+                    .addRoute("::", 0)
                     .addDnsServer("1.1.1.1")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     builder.setMetered(false)
@@ -85,14 +88,51 @@ class ForceVpnService : VpnService() {
                 config.put("env", config.optJSONObject("env") ?: JSONObject())
                 config.getJSONObject("env").put("xray.tun.fd", established.fd)
                 val runPayload = JSONObject().put("xrayJson", config.toString())
-                val runResult = invokeCore(core, "runXray", runPayload)
-                if (!runResult.optBoolean("success", false)) {
-                    throw IllegalStateException(runResult.optString("error").ifBlank { "Xray-core отклонил конфигурацию." })
+                val runResponse = AtomicReference<JSONObject?>(null)
+                val runFailure = AtomicReference<Throwable?>(null)
+                val engineThread = Thread({
+                    try {
+                        runResponse.set(invokeCore(core, "runXray", runPayload))
+                    } catch (failure: Throwable) {
+                        runFailure.set(failure)
+                    }
+                }, "ForceC-Xray-engine")
+                engineThread.start()
+
+                var started = false
+                val deadline = System.currentTimeMillis() + 15_000L
+                while (!stopping && engineThread.isAlive && System.currentTimeMillis() < deadline) {
+                    val state = runCatching { invokeCore(core, "getXrayState", JSONObject()) }.getOrNull()
+                    if (state?.optJSONObject("data")?.optBoolean("running", false) == true) {
+                        started = true
+                        break
+                    }
+                    val failure = runFailure.get()
+                    if (failure != null) throw IllegalStateException(failure.message ?: "Xray-core завершился с ошибкой.")
+                    val response = runResponse.get()
+                    if (response != null && !response.optBoolean("success", false)) {
+                        throw IllegalStateException(response.optString("error").ifBlank { "Xray-core отклонил конфигурацию." })
+                    }
+                    Thread.sleep(250)
                 }
-                broadcastState(STATE_CONNECTED, "Xray-core запущен")
-                updateNotification("Защищённое соединение активно")
-                // Keep the service alive until the user requests a disconnect.
-                while (!stopping && tunnel != null) Thread.sleep(750)
+                if (!stopping && !started) {
+                    val failure = runFailure.get()
+                    val response = runResponse.get()
+                    throw IllegalStateException(
+                        failure?.message ?: response?.optString("error")?.takeIf { it.isNotBlank() }
+                        ?: "Xray-core не запустился за 15 секунд."
+                    )
+                }
+                if (started) {
+                    broadcastState(STATE_CONNECTED, "Xray-core запущен")
+                    updateNotification("Защищённое соединение активно")
+                }
+                while (!stopping && engineThread.isAlive) Thread.sleep(500)
+                if (!stopping) {
+                    val response = runResponse.get()
+                    throw IllegalStateException(response?.optString("error")?.takeIf { it.isNotBlank() }
+                        ?: "Сетевой движок остановился.")
+                }
             } catch (e: Exception) {
                 broadcastState(STATE_ERROR, e.message ?: "Не удалось запустить сетевой движок")
                 stopTunnel(announce = false)
