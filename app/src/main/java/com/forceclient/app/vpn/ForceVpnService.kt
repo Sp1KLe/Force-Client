@@ -26,11 +26,14 @@ import java.util.concurrent.atomic.AtomicReference
 class ForceVpnService : VpnService() {
     private var tunnel: ParcelFileDescriptor? = null
     @Volatile private var stopping = false
+    @Volatile private var paused = false
     private var engineClass: Class<*>? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopTunnel()
+            ACTION_PAUSE -> pauseTunnel()
+            ACTION_RESUME -> startTunnel()
             ACTION_START -> startTunnel()
             else -> stopSelf(startId)
         }
@@ -39,6 +42,7 @@ class ForceVpnService : VpnService() {
 
     private fun startTunnel() {
         if (tunnel != null) return
+        paused = false
         stopping = false
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Подготовка защищённого соединения…"))
@@ -55,7 +59,14 @@ class ForceVpnService : VpnService() {
                 engineClass = core
 
                 // Measure real latency through Xray and select the fastest reachable node.
-                val selected = com.forceclient.app.XrayEngine.selectFastestProfile(raw)
+                val prefs = getSharedPreferences("forcec_preferences", MODE_PRIVATE)
+                val selectedHost = prefs.getString("selected_server_host", null)
+                val selectedPort = prefs.getInt("selected_server_port", 0)
+                val selected = if (!selectedHost.isNullOrBlank() && selectedPort > 0) {
+                    com.forceclient.app.XrayEngine.selectProfileByEndpoint(raw, selectedHost, selectedPort)
+                } else {
+                    com.forceclient.app.XrayEngine.selectFastestProfile(raw)
+                }
                 val protectController = registerSocketProtection(core)
                     ?: throw IllegalStateException("Не удалось настроить защиту сокетов Xray. Запуск остановлен, чтобы избежать сетевой петли.")
                 val setDns = core.methods.firstOrNull { it.name.equals("setDNS", ignoreCase = true) && it.parameterTypes.size == 2 }
@@ -98,15 +109,16 @@ class ForceVpnService : VpnService() {
                 }
                 if (stopping) return@Thread
 
-                broadcastState(STATE_CONNECTED, "Подключено · ${selected.delayMs} мс · ${selected.tag}")
-                updateNotification("VPN активен · пинг ${selected.delayMs} мс")
-                while (!stopping) {
+                broadcastState(STATE_CONNECTED, "Подключено · ${if (selected.delayMs >= 0) "${selected.delayMs} мс" else "сервер выбран вручную"} · ${selected.tag}")
+                updateNotification("VPN включён · ${selected.tag}", connected = true)
+                while (!stopping && !paused) {
                     val state = invokeCore(core, "getXrayState", JSONObject())
                     if (state.optJSONObject("data")?.optBoolean("running", false) != true) {
                         throw IllegalStateException("Xray-core остановился. Попробуйте другой сервер.")
                     }
                     Thread.sleep(1000)
                 }
+                if (paused && !stopping) return@Thread
             } catch (e: Exception) {
                 broadcastState(STATE_ERROR, e.message ?: "Не удалось запустить сетевой движок")
                 stopTunnel(announce = false)
@@ -211,6 +223,23 @@ class ForceVpnService : VpnService() {
         return controller
     }
 
+    private fun pauseTunnel() {
+        if (tunnel == null || paused) return
+        paused = true
+        stopping = false
+        engineClass?.let { core ->
+            runCatching { invokeCore(core, "stopXray", JSONObject()) }
+            runCatching {
+                core.methods.firstOrNull { it.name.equals("resetDNS", ignoreCase = true) && it.parameterTypes.isEmpty() }?.invoke(null)
+            }
+        }
+        engineClass = null
+        runCatching { tunnel?.close() }
+        tunnel = null
+        broadcastState(STATE_PAUSED, "VPN на паузе")
+        updateNotification("VPN на паузе", pausedState = true)
+    }
+
     private fun stopTunnel(announce: Boolean = true) {
         stopping = true
         val core = engineClass
@@ -240,23 +269,37 @@ class ForceVpnService : VpnService() {
         }
     }
 
-    private fun notification(message: String): Notification {
+    private fun notification(message: String, connected: Boolean = false, pausedState: Boolean = false): Notification {
         val openApp = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val pauseIntent = PendingIntent.getService(
+            this, 2, Intent(this, ForceVpnService::class.java).setAction(if (pausedState) ACTION_RESUME else ACTION_PAUSE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val disconnectIntent = PendingIntent.getService(
+            this, 3, Intent(this, ForceVpnService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setSmallIcon(com.forceclient.app.R.drawable.ic_forcec_notification)
             .setContentTitle("ForceCLIENT")
             .setContentText(message)
+            .apply {
+                if (connected || pausedState) {
+                    addAction(0, if (pausedState) "Продолжить" else "Пауза", pauseIntent)
+                    addAction(0, "Отключить", disconnectIntent)
+                }
+            }
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
     }
 
-    private fun updateNotification(message: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(message))
+    private fun updateNotification(message: String, connected: Boolean = false, pausedState: Boolean = false) {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(message, connected, pausedState))
     }
 
     override fun onRevoke() {
@@ -272,11 +315,14 @@ class ForceVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.forceclient.app.vpn.START"
         const val ACTION_STOP = "com.forceclient.app.vpn.STOP"
+        const val ACTION_PAUSE = "com.forceclient.app.vpn.PAUSE"
+        const val ACTION_RESUME = "com.forceclient.app.vpn.RESUME"
         const val ACTION_STATE = "com.forceclient.app.vpn.STATE"
         const val EXTRA_STATE = "state"
         const val EXTRA_MESSAGE = "message"
         const val STATE_CONNECTED = "connected"
         const val STATE_DISCONNECTED = "disconnected"
+        const val STATE_PAUSED = "paused"
         const val STATE_ERROR = "error"
         private const val CHANNEL_ID = "forcec_vpn"
         private const val NOTIFICATION_ID = 42
