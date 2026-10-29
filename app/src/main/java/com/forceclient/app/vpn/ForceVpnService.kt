@@ -221,6 +221,7 @@ class ForceVpnService : VpnService() {
                     ?.invoke(null)
             }
         }
+        engineClass = null
         runCatching { tunnel?.close() }
         tunnel = null
         if (announce) broadcastState(STATE_DISCONNECTED, "Отключено")
@@ -264,7 +265,7 @@ class ForceVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        if (tunnel != null || engineClass != null) stopTunnel(announce = false)
         super.onDestroy()
     }
 
