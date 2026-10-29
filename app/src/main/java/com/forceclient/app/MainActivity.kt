@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.content.Intent
 import android.app.Activity
 import android.net.VpnService
+import com.forceclient.app.vpn.ForceVpnService
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
