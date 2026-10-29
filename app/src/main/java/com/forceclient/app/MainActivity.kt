@@ -15,6 +15,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -359,9 +371,14 @@ private fun countProfiles(raw: String): Int {
 @Composable
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
                      importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean) {
+    val pulse by rememberInfiniteTransition(label = "connectionPulse").animateFloat(
+        initialValue = 0.94f, targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulseScale"
+    )
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = RoundedCornerShape(16.dp), color = Brown, modifier = Modifier.size(48.dp)) {
                     Box(contentAlignment = Alignment.Center) { Text("F", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Black) }
@@ -369,35 +386,51 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("ForceCLIENT", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("Сильное соединение. Просто.", color = muted, fontSize = 12.sp)
+                    Text("Твой интернет. Под твоим контролем.", color = muted, fontSize = 12.sp)
                 }
             }
         }
         item {
-            Surface(color = card, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = card, shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
                 Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(76.dp).background(Brown.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Shield, null, tint = text, modifier = Modifier.size(42.dp))
+                    Box(Modifier.size((112 * pulse).dp).background(Brown.copy(alpha = .10f), CircleShape), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(88.dp).background(Brown.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                            Surface(shape = CircleShape, color = Brown, modifier = Modifier.size(68.dp)) {
+                                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Shield, null, tint = Cream, modifier = Modifier.size(38.dp)) }
+                            }
+                        }
                     }
-                    Spacer(Modifier.height(14.dp))
-                    Text("VPN не подключён", color = text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text("Импортируйте конфигурацию для подготовки", color = muted, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Surface(color = Brown.copy(alpha = .14f), shape = RoundedCornerShape(50)) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(7.dp).background(Color(0xFFE0A05F), CircleShape))
+                            Spacer(Modifier.width(7.dp))
+                            Text("НЕ ПОДКЛЮЧЕНО", color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Готов к защищённому соединению?", color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Добавь профиль, чтобы подготовить подключение", color = muted, fontSize = 12.sp)
                     Spacer(Modifier.height(20.dp))
                     Button(onClick = onImport, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Импортировать конфиг", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Добавить конфигурацию", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = onImportUrl, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Default.Link, null); Spacer(Modifier.width(8.dp)); Text("Импортировать по ссылке")
                     }
+                    Text("Реальный VPN-движок ещё не подключён.", color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
                 }
             }
         }
         item {
-            Text("Моя конфигурация", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Text("Твой профиль", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Surface(color = card, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Description, null, tint = Brown, modifier = Modifier.size(28.dp))
+                    Surface(color = Brown.copy(alpha = .15f), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Default.Description, null, tint = Brown, modifier = Modifier.padding(10.dp).size(26.dp))
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(config?.fileName ?: "Пока нет конфигурации", color = text, fontWeight = FontWeight.SemiBold)
@@ -406,7 +439,15 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                     if (config != null) Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF63B77B))
                 }
             }
-            if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
+            AnimatedVisibility(visible = importMessage != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Surface(color = card, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(13.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.Info, null, tint = Brown, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(importMessage.orEmpty(), color = muted, fontSize = 12.sp)
+                    }
+                }
+            }
         }
         item {
             Surface(onClick = onServers, color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
@@ -438,7 +479,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Серверы", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Выберите подходящую локацию", color = muted)
+        Text("Найди подходящий узел", color = muted, fontSize = 14.sp)
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onPing, enabled = !pinging && servers.isNotEmpty(), modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
@@ -487,7 +528,7 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
     Column(modifier.fillMaxSize().padding(20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Настройки", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Настройте ForceC под себя", color = muted)
+        Text("Сделай ForceC удобным для себя", color = muted, fontSize = 14.sp)
         Spacer(Modifier.height(22.dp))
         Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -495,7 +536,7 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Тёмная тема", color = text, fontWeight = FontWeight.SemiBold)
-                    Text("Выбор сохраняется после перезапуска приложения", color = muted, fontSize = 12.sp)
+                    Text(if (dark) "Шоколадный фон и тёплые акценты" else "Светлая кремовая палитра", color = muted, fontSize = 12.sp)
                 }
                 Switch(checked = dark, onCheckedChange = onTheme)
             }
