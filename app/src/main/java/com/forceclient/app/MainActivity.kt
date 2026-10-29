@@ -459,108 +459,120 @@ private fun countProfiles(raw: String): Int {
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
                      importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean, vpnState: String, onConnect: () -> Unit) {
     val pulse by rememberInfiniteTransition(label = "connectionPulse").animateFloat(
-        initialValue = 0.94f, targetValue = 1.04f,
+        initialValue = 0.97f, targetValue = 1.03f,
         animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulseScale"
     )
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(16.dp), color = LocalForceAccent.current, modifier = Modifier.size(48.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Text("F", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Black) }
+    var showAddMenu by remember { mutableStateOf(false) }
+    val isConnected = vpnState == ForceVpnService.STATE_CONNECTED
+    val isConnecting = vpnState == "connecting"
+    val background = MaterialTheme.colorScheme.background
+    Column(modifier.fillMaxSize().background(background)) {
+        Row(
+            Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFF242424), modifier = Modifier.size(38.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.SignalCellularAlt, null, tint = Color(0xFF7778E8), modifier = Modifier.size(26.dp))
                 }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("ForceCLIENT", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("Твой интернет. Под твоим контролем.", color = muted, fontSize = 12.sp)
+            }
+            Spacer(Modifier.width(9.dp))
+            Text("ForceCLIENT", color = text, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.width(7.dp))
+            Surface(color = LocalForceAccent.current.copy(alpha = .28f), shape = RoundedCornerShape(6.dp)) {
+                Text("0.3", color = text, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onServers) {
+                Icon(Icons.Default.Tune, "Серверы и задержка", tint = LocalForceAccent.current)
+            }
+            Box {
+                IconButton(onClick = { showAddMenu = true }) {
+                    Icon(Icons.Default.Add, "Добавить конфигурацию", tint = LocalForceAccent.current, modifier = Modifier.size(27.dp))
+                }
+                DropdownMenu(expanded = showAddMenu, onDismissRequest = { showAddMenu = false }) {
+                    DropdownMenuItem(text = { Text("Импортировать файл") }, leadingIcon = { Icon(Icons.Default.FileOpen, null) }, onClick = { showAddMenu = false; onImport() })
+                    DropdownMenuItem(text = { Text("Импортировать по ссылке") }, leadingIcon = { Icon(Icons.Default.Link, null) }, onClick = { showAddMenu = false; onImportUrl() })
+                    DropdownMenuItem(text = { Text("Обновить подписку") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, onClick = { showAddMenu = false; onRefresh() })
                 }
             }
         }
-        item {
-            Surface(color = card, shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
-                Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size((112 * pulse).dp).background(LocalForceAccent.current.copy(alpha = .10f), CircleShape), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(88.dp).background(LocalForceAccent.current.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                            Surface(shape = CircleShape, color = LocalForceAccent.current, modifier = Modifier.size(68.dp)) {
-                                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Shield, null, tint = Cream, modifier = Modifier.size(38.dp)) }
+        Row(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.width(64.dp).fillMaxHeight().padding(top = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                NavigationRailItem(selected = false, onClick = onConnect, icon = { Icon(Icons.Default.PowerSettingsNew, null) }, label = null)
+                NavigationRailItem(selected = false, onClick = onServers, icon = { Icon(Icons.Default.Settings, null) }, label = null)
+                NavigationRailItem(selected = false, onClick = onImport, icon = { Icon(Icons.Default.Description, null) }, label = null)
+                NavigationRailItem(selected = false, onClick = onRefresh, icon = { Icon(Icons.Default.Info, null) }, label = null)
+            }
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                Column(
+                    Modifier.fillMaxWidth().align(Alignment.Center).padding(horizontal = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        Modifier.size((168 * pulse).dp).background(Color(0xFF242424), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            onClick = onConnect,
+                            enabled = !isConnecting,
+                            shape = CircleShape,
+                            color = if (isConnected) Color(0xFFB8D9C0) else Color(0xFFF7F5FF),
+                            modifier = Modifier.size(142.dp),
+                            shadowElevation = 12.dp
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    if (isConnected) Icons.Default.Shield else Icons.Default.PowerSettingsNew,
+                                    contentDescription = if (isConnected) "Отключиться" else "Подключиться",
+                                    tint = if (isConnected) Color(0xFF285D3C) else Color(0xFF55549A),
+                                    modifier = Modifier.size(64.dp)
+                                )
                             }
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Surface(color = LocalForceAccent.current.copy(alpha = .14f), shape = RoundedCornerShape(50)) {
-                        Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(7.dp).background(Color(0xFFE0A05F), CircleShape))
-                            Spacer(Modifier.width(7.dp))
-                            Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "ЗАЩИЩЕНО"; "connecting" -> "ПОДКЛЮЧЕНИЕ…"; ForceVpnService.STATE_ERROR -> "ОШИБКА"; else -> "НЕ ПОДКЛЮЧЕНО" }, color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        when {
+                            isConnected -> "Подключено · защищено"
+                            isConnecting -> "Подключение…"
+                            vpnState == ForceVpnService.STATE_ERROR -> "Не удалось подключиться"
+                            else -> "Нажмите для подключения"
+                        },
+                        color = text, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        when {
+                            isConnected -> "VPN-туннель работает"
+                            isConnecting -> "Выбираем самый быстрый сервер…"
+                            config == null -> "Добавьте конфигурацию через +"
+                            else -> "ForceCLIENT готов к работе"
+                        },
+                        color = muted, fontSize = 12.sp
+                    )
+                    if (config != null) {
+                        Spacer(Modifier.height(18.dp))
+                        Surface(color = card.copy(alpha = .72f), shape = RoundedCornerShape(12.dp)) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Description, null, tint = LocalForceAccent.current, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text(config.fileName + " · " + config.profiles + " проф.", color = muted, fontSize = 11.sp, maxLines = 1)
+                            }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "Соединение защищено"; "connecting" -> "Подключаемся к серверу…"; ForceVpnService.STATE_ERROR -> "Не удалось подключиться"; else -> "Готов к защищённому соединению?" }, color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(5.dp))
-                    Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "Трафик передаётся через Xray-core"; "connecting" -> "Настраиваем VPN-туннель Android"; else -> "Импортируй профиль, затем подключись" }, color = muted, fontSize = 12.sp)
-                    Spacer(Modifier.height(20.dp))
-                    Button(onClick = onConnect, enabled = vpnState != "connecting", modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(if (vpnState == ForceVpnService.STATE_CONNECTED) Icons.Default.LinkOff else Icons.Default.Shield, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (vpnState == ForceVpnService.STATE_CONNECTED) "Отключиться" else if (vpnState == "connecting") "Подключение…" else "Подключиться", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Добавить конфигурацию")
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = onImportUrl, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(Icons.Default.Link, null); Spacer(Modifier.width(8.dp)); Text("Импортировать по ссылке")
-                    }
-                    Text("Сетевой движок: Xray-core · Android VPNService", color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
-                }
-            }
-        }
-        item {
-            Text("Твой профиль", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Surface(color = card, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = LocalForceAccent.current.copy(alpha = .15f), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Default.Description, null, tint = LocalForceAccent.current, modifier = Modifier.padding(10.dp).size(26.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(config?.fileName ?: "Пока нет конфигурации", color = text, fontWeight = FontWeight.SemiBold)
-                        Text(config?.let { "${it.format} · профилей: ${it.profiles}" } ?: "Импортируйте .json или текстовую ссылку", color = muted, fontSize = 12.sp)
-                    }
-                    if (config != null) Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF63B77B))
-                }
-            }
-            AnimatedVisibility(visible = importMessage != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-                Surface(color = card, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(13.dp), verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Default.Info, null, tint = LocalForceAccent.current, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(importMessage.orEmpty(), color = muted, fontSize = 12.sp)
+                    AnimatedVisibility(visible = importMessage != null) {
+                        Surface(color = card, shape = RoundedCornerShape(12.dp), modifier = Modifier.padding(top = 12.dp)) {
+                            Text(importMessage.orEmpty(), color = muted, fontSize = 11.sp, modifier = Modifier.padding(12.dp))
+                        }
                     }
                 }
             }
-        }
-        item {
-            Surface(onClick = onServers, color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Public, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Серверы", color = text, fontWeight = FontWeight.SemiBold)
-                        Text("Проверка задержки и сортировка", color = muted, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, null, tint = muted)
-                }
-            }
-        }
-        item {
-            OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Обновить конфигурации")
-            }
-            Text(when { refreshing -> "Загружаю свежие конфигурации…"; refreshCount > 0 -> "Последняя попытка обновления выполнена."; else -> "При импорте по ссылке адрес подписки сохраняется автоматически." }, color = muted, fontSize = 12.sp)
-            Spacer(Modifier.height(16.dp))
         }
     }
 }
