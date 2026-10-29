@@ -86,7 +86,7 @@ class ForceVpnService : VpnService() {
                 tunnel = established
 
                 config.put("env", config.optJSONObject("env") ?: JSONObject())
-                config.getJSONObject("env").put("xray.tun.fd", established.fd)
+                config.getJSONObject("env").put("xray.tun.fd", established.fd.toString())
                 val runPayload = JSONObject().put("xrayJson", config.toString())
                 val runResponse = AtomicReference<JSONObject?>(null)
                 val runFailure = AtomicReference<Throwable?>(null)
