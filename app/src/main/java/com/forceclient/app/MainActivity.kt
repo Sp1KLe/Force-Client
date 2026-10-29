@@ -38,15 +38,12 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,7 +51,6 @@ import java.io.File
 import java.io.IOException
 
 private val LocalForceAccent = compositionLocalOf { Color(0xFFB9825D) }
-private val LocalForceAccent.current: Color get() = Color(0xFFB9825D)
 private val Cream = Color(0xFFFFE0C2)
 private val DarkBg = Color(0xFF17110F)
 private val DarkCard = Color(0xFF261B17)
