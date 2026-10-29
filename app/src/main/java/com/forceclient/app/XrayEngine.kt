@@ -133,7 +133,7 @@ object XrayEngine {
                     tag = outbound.optString("tag"),
                     host = endpoint.first,
                     port = endpoint.second,
-                    delayMs = if (success && delay in 1L..9999L) delay.toInt() else null,
+                    delayMs = if (success && delay in 0L..9999L) delay.toInt() else null,
                     success = success && delay < 10000L,
                     error = item.optString("error").takeIf { it.isNotBlank() },
                     outbound = JSONObject(outbound.toString())
