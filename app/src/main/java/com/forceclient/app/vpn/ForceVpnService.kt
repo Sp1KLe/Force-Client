@@ -53,21 +53,14 @@ class ForceVpnService : VpnService() {
 
                 val core = findCoreClass()
                 engineClass = core
+
+                // Measure real latency through Xray and select the fastest reachable node.
+                val selected = com.forceclient.app.XrayEngine.selectFastestProfile(raw)
                 val protectController = registerSocketProtection(core)
                     ?: throw IllegalStateException("Не удалось настроить защиту сокетов Xray. Запуск остановлен, чтобы избежать сетевой петли.")
                 val setDns = core.methods.firstOrNull { it.name.equals("setDNS", ignoreCase = true) && it.parameterTypes.size == 2 }
                     ?: throw IllegalStateException("В libXray отсутствует безопасная настройка DNS.")
                 setDns.invoke(null, protectController, "1.1.1.1:53")
-                var config = if (raw.startsWith("{") && runCatching { JSONObject(raw).has("outbounds") }.getOrDefault(false)) {
-                    normalizeConfig(JSONObject(raw))
-                } else {
-                    val converted = invokeCore(core, "convertShareLinksToXrayJson", JSONObject().put("text", raw))
-                    val outbounds = converted.optJSONObject("data")?.optJSONArray("outbounds")
-                    if (outbounds == null || outbounds.length() == 0) {
-                        throw IllegalStateException(converted.optString("error").ifBlank { "Не удалось разобрать профиль Xray." })
-                    }
-                    normalizeConfig(buildConfig(outbounds))
-                }
 
                 val builder = Builder()
                     .setSession("ForceCLIENT")
@@ -86,50 +79,32 @@ class ForceVpnService : VpnService() {
                 config.put("env", config.optJSONObject("env") ?: JSONObject())
                 config.getJSONObject("env").put("xray.tun.fd", established.fd.toString())
                 val runPayload = JSONObject().put("xrayJson", config.toString())
-                val runResponse = AtomicReference<JSONObject?>(null)
-                val runFailure = AtomicReference<Throwable?>(null)
-                val engineThread = Thread({
-                    try {
-                        runResponse.set(invokeCore(core, "runXray", runPayload))
-                    } catch (failure: Throwable) {
-                        runFailure.set(failure)
-                    }
-                }, "ForceC-Xray-engine")
-                engineThread.start()
+                // libXray.runXray returns after Start succeeds; it is not a long-running call.
+                invokeCore(core, "runXray", runPayload)
 
                 var started = false
                 val deadline = System.currentTimeMillis() + 15_000L
-                while (!stopping && engineThread.isAlive && System.currentTimeMillis() < deadline) {
-                    val state = runCatching { invokeCore(core, "getXrayState", JSONObject()) }.getOrNull()
-                    if (state?.optJSONObject("data")?.optBoolean("running", false) == true) {
+                while (!stopping && System.currentTimeMillis() < deadline) {
+                    val state = invokeCore(core, "getXrayState", JSONObject())
+                    if (state.optJSONObject("data")?.optBoolean("running", false) == true) {
                         started = true
                         break
-                    }
-                    val failure = runFailure.get()
-                    if (failure != null) throw IllegalStateException(failure.message ?: "Xray-core завершился с ошибкой.")
-                    val response = runResponse.get()
-                    if (response != null && !response.optBoolean("success", false)) {
-                        throw IllegalStateException(response.optString("error").ifBlank { "Xray-core отклонил конфигурацию." })
                     }
                     Thread.sleep(250)
                 }
                 if (!stopping && !started) {
-                    val failure = runFailure.get()
-                    val response = runResponse.get()
-                    throw IllegalStateException(
-                        failure?.message ?: response?.optString("error")?.takeIf { it.isNotBlank() }
-                        ?: "Xray-core не запустился за 15 секунд."
-                    )
+                    throw IllegalStateException("Xray-core не подтвердил запуск за 15 секунд.")
                 }
-                if (started) {
-                    broadcastState(STATE_CONNECTED, "Xray-core запущен")
-                    updateNotification("Защищённое соединение активно")
-                }
-                while (!stopping && engineThread.isAlive) Thread.sleep(500)
-                if (!stopping) {
-                    val response = runResponse.get()
-                    throw IllegalStateException(response?.optString("error")?.takeIf { it.isNotBlank() }
-                        ?: "Сетевой движок остановился.")
+                if (stopping) return@Thread
+
+                broadcastState(STATE_CONNECTED, "Подключено · ${selected.delayMs} мс · ${selected.tag}")
+                updateNotification("VPN активен · пинг ${selected.delayMs} мс")
+                while (!stopping) {
+                    val state = invokeCore(core, "getXrayState", JSONObject())
+                    if (state.optJSONObject("data")?.optBoolean("running", false) != true) {
+                        throw IllegalStateException("Xray-core остановился. Попробуйте другой сервер.")
+                    }
+                    Thread.sleep(1000)
                 }
             } catch (e: Exception) {
                 broadcastState(STATE_ERROR, e.message ?: "Не удалось запустить сетевой движок")
@@ -240,6 +215,10 @@ class ForceVpnService : VpnService() {
         val core = engineClass
         if (core != null) {
             runCatching { invokeCore(core, "stopXray", JSONObject()) }
+            runCatching {
+                core.methods.firstOrNull { it.name.equals("resetDNS", ignoreCase = true) && it.parameterTypes.isEmpty() }
+                    ?.invoke(null)
+            }
         }
         runCatching { tunnel?.close() }
         tunnel = null
