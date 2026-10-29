@@ -54,7 +54,7 @@ import java.io.File
 import java.io.IOException
 
 private val LocalForceAccent = compositionLocalOf { Color(0xFFB9825D) }
-private val Brown: Color get() = Color(0xFFB9825D)
+private val LocalForceAccent.current: Color get() = Color(0xFFB9825D)
 private val Cream = Color(0xFFFFE0C2)
 private val DarkBg = Color(0xFF17110F)
 private val DarkCard = Color(0xFF261B17)
@@ -399,7 +399,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
         item {
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(16.dp), color = Brown, modifier = Modifier.size(48.dp)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = LocalForceAccent.current, modifier = Modifier.size(48.dp)) {
                     Box(contentAlignment = Alignment.Center) { Text("F", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Black) }
                 }
                 Spacer(Modifier.width(12.dp))
@@ -412,15 +412,15 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
         item {
             Surface(color = card, shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
                 Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size((112 * pulse).dp).background(Brown.copy(alpha = .10f), CircleShape), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(88.dp).background(Brown.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                            Surface(shape = CircleShape, color = Brown, modifier = Modifier.size(68.dp)) {
+                    Box(Modifier.size((112 * pulse).dp).background(LocalForceAccent.current.copy(alpha = .10f), CircleShape), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(88.dp).background(LocalForceAccent.current.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                            Surface(shape = CircleShape, color = LocalForceAccent.current, modifier = Modifier.size(68.dp)) {
                                 Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Shield, null, tint = Cream, modifier = Modifier.size(38.dp)) }
                             }
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Surface(color = Brown.copy(alpha = .14f), shape = RoundedCornerShape(50)) {
+                    Surface(color = LocalForceAccent.current.copy(alpha = .14f), shape = RoundedCornerShape(50)) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(7.dp).background(Color(0xFFE0A05F), CircleShape))
                             Spacer(Modifier.width(7.dp))
@@ -447,8 +447,8 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
             Text("Твой профиль", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Surface(color = card, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().animateContentSize()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = Brown.copy(alpha = .15f), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Default.Description, null, tint = Brown, modifier = Modifier.padding(10.dp).size(26.dp))
+                    Surface(color = LocalForceAccent.current.copy(alpha = .15f), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Default.Description, null, tint = LocalForceAccent.current, modifier = Modifier.padding(10.dp).size(26.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -461,7 +461,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
             AnimatedVisibility(visible = importMessage != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Surface(color = card, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(13.dp), verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Default.Info, null, tint = Brown, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Info, null, tint = LocalForceAccent.current, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(importMessage.orEmpty(), color = muted, fontSize = 12.sp)
                     }
@@ -471,7 +471,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
         item {
             Surface(onClick = onServers, color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Public, null, tint = Brown, modifier = Modifier.size(28.dp))
+                    Icon(Icons.Default.Public, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Серверы", color = text, fontWeight = FontWeight.SemiBold)
@@ -527,7 +527,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
             items(servers) { server ->
                 Surface(color = card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Dns, null, tint = Brown, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Dns, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(server.name, color = text, fontWeight = FontWeight.SemiBold)
@@ -577,7 +577,7 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
         Spacer(Modifier.height(14.dp))
         Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (dark) Icons.Default.DarkMode else Icons.Default.LightMode, null, tint = Brown, modifier = Modifier.size(28.dp))
+                Icon(if (dark) Icons.Default.DarkMode else Icons.Default.LightMode, null, tint = LocalForceAccent.current, modifier = Modifier.size(28.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Тёмная тема", color = text, fontWeight = FontWeight.SemiBold)
