@@ -128,11 +128,13 @@ private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, Stri
         } ?: throw IOException("Не удалось открыть файл")
         val raw = bytes.toString(Charsets.UTF_8).trim()
         if (raw.isBlank()) throw IOException("Файл пустой")
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val recognized = raw.startsWith("{") || raw.startsWith("[") ||
-            raw.startsWith("vless://", true) || raw.startsWith("vmess://", true) ||
-            raw.startsWith("trojan://", true) || raw.startsWith("ss://", true) ||
-            raw.startsWith("https://", true) || raw.startsWith("http://", true) ||
-            raw.contains("\\nvless://", true) || raw.contains("\\nvmess://", true)
+            lines.any { line ->
+                line.startsWith("vless://", true) || line.startsWith("vmess://", true) ||
+                    line.startsWith("trojan://", true) || line.startsWith("ss://", true) ||
+                    line.startsWith("https://", true) || line.startsWith("http://", true)
+            }
         if (!recognized) throw IOException("Формат не распознан. Выберите JSON или текстовый файл с поддерживаемой конфигурацией.")
         val folder = File(context.filesDir, "configs").apply { mkdirs() }
         File(folder, "active_config.txt").writeText(raw)
