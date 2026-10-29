@@ -327,7 +327,7 @@ private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, Stri
         File(folder, "active_config.txt").writeText(raw)
         File(folder, "active_name.txt").writeText(name)
         val item = ImportedConfig(name, detectFormat(name, raw), countProfiles(raw))
-        item to "Конфигурация импортирована локально. VPN-движок ещё не подключён."
+        item to "Конфигурация импортирована. Xray-core обработает её при подключении."
     } catch (e: Exception) {
         null to (e.message ?: "Не удалось импортировать конфигурацию")
     }
@@ -378,7 +378,7 @@ private fun importConfigFromUrl(context: Context, value: String): Pair<ImportedC
         File(folder, "active_config.txt").writeText(raw)
         File(folder, "active_name.txt").writeText(name)
         val item = ImportedConfig(name, detectFormat(name, raw), countProfiles(raw))
-        item to "Подписка загружена. Профилей найдено: ${item.profiles}. Для подключения ещё нужен VPN-движок."
+        item to "Подписка загружена. Профилей найдено: ${item.profiles}. Можно запускать VPN."
     } catch (e: Exception) {
         null to (e.message ?: "Не удалось загрузить подписку.")
     } finally {
@@ -651,7 +651,7 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
             Column(Modifier.padding(18.dp)) {
                 Text("ForceCLIENT · 0.2.0", color = text, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
-                Text("Material 3 · импорт конфигураций · VPN-движок ещё не подключён", color = muted, fontSize = 12.sp)
+                Text("Material 3 · Xray-core · Android VPNService", color = muted, fontSize = 12.sp)
             }
         }
     }
