@@ -274,7 +274,7 @@ private fun ForceCApp(context: Context) {
             )
         }
         Scaffold(containerColor = bg, bottomBar = {
-            NavigationBar(containerColor = card) {
+            if (page != Page.Home) NavigationBar(containerColor = card) {
                 NavigationBarItem(page == Page.Home, { page = Page.Home }, icon = { Icon(Icons.Default.Shield, null) }, label = { Text("Главная") })
                 NavigationBarItem(page == Page.Servers, { page = Page.Servers }, icon = { Icon(Icons.Default.Public, null) }, label = { Text("Серверы") })
                 NavigationBarItem(page == Page.Settings, { page = Page.Settings }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Настройки") })
@@ -283,7 +283,7 @@ private fun ForceCApp(context: Context) {
             when (page) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing, vpnState = vpnState, onConnect = { toggleVpn() })
+                    onServers = { page = Page.Servers }, onSettings = { page = Page.Settings }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing, vpnState = vpnState, onConnect = { toggleVpn() })
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
                     pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
@@ -457,7 +457,7 @@ private fun countProfiles(raw: String): Int {
 
 @Composable
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
-                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean, vpnState: String, onConnect: () -> Unit) {
+                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onSettings: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean, vpnState: String, onConnect: () -> Unit) {
     val pulse by rememberInfiniteTransition(label = "connectionPulse").animateFloat(
         initialValue = 0.97f, targetValue = 1.03f,
         animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
@@ -505,7 +505,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 NavigationRailItem(selected = false, onClick = onConnect, icon = { Icon(Icons.Default.PowerSettingsNew, null) }, label = null)
-                NavigationRailItem(selected = false, onClick = onServers, icon = { Icon(Icons.Default.Settings, null) }, label = null)
+                NavigationRailItem(selected = false, onClick = onSettings, icon = { Icon(Icons.Default.Settings, null) }, label = null)
                 NavigationRailItem(selected = false, onClick = onImport, icon = { Icon(Icons.Default.Description, null) }, label = null)
                 NavigationRailItem(selected = false, onClick = onRefresh, icon = { Icon(Icons.Default.Info, null) }, label = null)
             }
