@@ -86,6 +86,14 @@ private data class ImportedConfig(val fileName: String, val format: String, val 
 @Composable
 private fun ForceCApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("forcec_preferences", Context.MODE_PRIVATE) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     var dark by remember { mutableStateOf(prefs.getBoolean("dark_theme", true)) }
     var accentArgb by remember { mutableIntStateOf(prefs.getInt("accent_color", 0xFFB9825D.toInt())) }
     var showAccentDialog by remember { mutableStateOf(false) }
