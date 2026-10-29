@@ -576,7 +576,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onPing, enabled = !pinging && servers.isNotEmpty(), modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(if (pinging) "Проверяю…" else "TCP-пинг")
+                Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(if (pinging) "Проверяю…" else "Xray ping")
             }
             OutlinedButton(onClick = onSort, shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Sort, null); Text(if (sorted) "Сбросить" else "Сортировать")
@@ -612,7 +612,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
                 }
             }
         }
-        if (pinging) Text("Проверяю TCP-доступность узлов…", color = muted, fontSize = 12.sp)
+        if (pinging) Text("Проверяю задержку через каждый прокси-узел…", color = muted, fontSize = 12.sp)
     }
 }
 
