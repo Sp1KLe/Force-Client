@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.Socket
 import java.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,6 +65,27 @@ private fun ForceCApp(context: Context) {
     var showUrlDialog by remember { mutableStateOf(false) }
     var subscriptionUrl by remember { mutableStateOf("") }
     var urlLoading by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+
+    fun refreshSubscription() {
+        val savedUrl = prefs.getString("subscription_url", null)
+        if (savedUrl.isNullOrBlank()) {
+            importMessage = "Сначала импортируйте подписку по HTTPS-ссылке — её адрес будет сохранён для обновления."
+            return
+        }
+        if (refreshing) return
+        refreshing = true
+        importMessage = "Обновляю подписку…"
+        Thread {
+            val result = importConfigFromUrl(context, savedUrl)
+            Handler(Looper.getMainLooper()).post {
+                refreshing = false
+                importMessage = if (result.first != null) "Подписка обновлена: " + result.first.profiles + " профилей." else result.second
+                if (result.first != null) importedConfig = result.first
+                refreshCount++
+            }
+        }.start()
+    }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -115,8 +137,11 @@ private fun ForceCApp(context: Context) {
                             Handler(Looper.getMainLooper()).post {
                                 urlLoading = false
                                 importMessage = result.second
-                                if (result.first != null) importedConfig = result.first
-                                if (result.first != null) showUrlDialog = false
+                                if (result.first != null) {
+                                    importedConfig = result.first
+                                    prefs.edit().putString("subscription_url", url).apply()
+                                    showUrlDialog = false
+                                }
                             }
                         }.start()
                     }) { Text("Импортировать") }
@@ -136,11 +161,11 @@ private fun ForceCApp(context: Context) {
             when (page) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
+                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, servers, importedConfig, importMessage,
                     pingChecked, sorted, onPing = { pingChecked = true }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onImportUrl = { showUrlDialog = true }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
+                    onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
                 Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = {
                     dark = it
                     prefs.edit().putBoolean("dark_theme", it).apply()
@@ -341,7 +366,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                 Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Обновить конфигурации")
             }
-            Text(if (refreshCount > 0) "Источник подписки не настроен — обновление не выполнено." else "Обновление будет доступно после настройки источника конфигов.", color = muted, fontSize = 12.sp)
+            Text(when { refreshing -> "Загружаю свежие конфигурации…"; refreshCount > 0 -> "Последняя попытка обновления выполнена."; else -> "При импорте по ссылке адрес подписки сохраняется автоматически." }, color = muted, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -395,7 +420,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
                 }
             }
         }
-        if (refreshCount > 0) Text("Обновление не выполнено: источник подписки не настроен.", color = muted, fontSize = 12.sp)
+        if (refreshing) Text("Обновляю подписку…", color = muted, fontSize = 12.sp)
     }
 }
 
