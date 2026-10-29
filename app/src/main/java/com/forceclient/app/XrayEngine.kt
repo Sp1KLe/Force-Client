@@ -151,15 +151,12 @@ object XrayEngine {
             val outbound = outbounds.optJSONObject(i) ?: continue
             val endpoint = endpointOf(outbound)
             if (endpoint.first.equals(host, ignoreCase = true) && endpoint.second == port) {
-                val ping = pingProfiles(text).firstOrNull {
-                    it.host.equals(host, ignoreCase = true) && it.port == port
-                }
                 return FastestProfile(
                     outbound = JSONObject(outbound.toString()),
                     tag = outbound.optString("tag"),
                     host = endpoint.first,
                     port = endpoint.second,
-                    delayMs = ping?.delayMs ?: -1
+                    delayMs = -1
                 )
             }
         }
