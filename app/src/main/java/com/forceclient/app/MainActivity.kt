@@ -574,6 +574,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                             isConnected -> "Подключено · защищено"
                             isConnecting -> "Подключение…"
                             vpnState == ForceVpnService.STATE_ERROR -> "Не удалось подключиться"
+                            vpnState == ForceVpnService.STATE_PAUSED -> "VPN на паузе"
                             else -> "Нажмите для подключения"
                         },
                         color = text, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold
@@ -582,7 +583,8 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                     Text(
                         when {
                             isConnected -> "VPN-туннель работает"
-                            isConnecting -> "Выбираем самый быстрый сервер…"
+                            isConnecting -> "Подготавливаем VPN-соединение…"
+                            vpnState == ForceVpnService.STATE_PAUSED -> "Нажмите кнопку, чтобы продолжить"
                             config == null -> "Добавьте конфигурацию через +"
                             else -> "ForceCLIENT готов к работе"
                         },
