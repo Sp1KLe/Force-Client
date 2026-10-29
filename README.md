@@ -3,16 +3,18 @@
 ForceCLIENT is an Android VPN client project with a Material 3 interface.
 
 ## Current milestone
-- Native Android app scaffold using Kotlin and Jetpack Compose
-- Material 3 dark/light theme switch
+- Kotlin + Jetpack Compose and Material 3
+- Dark/light theme switch
 - Home, servers, and settings navigation
-- Server latency UI and sorting controls are interface foundations only at this stage
+- Import local configuration files
+- Import a subscription by HTTPS URL
+- Subscription downloads are limited to 1 MiB and must return supported VLESS, VMess, Trojan, Shadowsocks, or JSON configuration data
 
 ## Build
-Open this repository in Android Studio with Android SDK installed, then sync Gradle and run the `app` configuration.
+Open this repository in Android Studio with Android SDK installed, sync Gradle, then run the `app` configuration.
 
 ## VPN status
-A real tunnel engine and configuration import/refresh are not implemented yet. UI actions must not be mistaken for a connected VPN. Those will be integrated in a later milestone.
+The VPN engine is not integrated yet. Importing a subscription only downloads and stores configuration data; it does not connect a VPN tunnel. Server ping and subscription refresh controls are also not fully implemented.
 
 ## Identity
 App name: ForceCLIENT  
