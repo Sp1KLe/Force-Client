@@ -1,8 +1,12 @@
 package com.forceclient.app
 
+import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.File
+import java.io.IOException
 
 private val Brown = Color(0xFFB9825D)
 private val Cream = Color(0xFFFFE0C2)
@@ -27,25 +33,38 @@ private val DarkCard = Color(0xFF261B17)
 private val LightBg = Color(0xFFFFF8F3)
 private val LightCard = Color(0xFFF2E4D9)
 private val Ink = Color(0xFF281A14)
+private const val MAX_CONFIG_BYTES = 1_048_576
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { ForceCApp() }
+        setContent { ForceCApp(this) }
     }
 }
 
 private enum class Page { Home, Servers, Settings }
 private data class Server(val name: String, val region: String, val ping: Int?)
+private data class ImportedConfig(val fileName: String, val format: String, val profiles: Int)
 
 @Composable
-private fun ForceCApp() {
-    var dark by remember { mutableStateOf(true) }
+private fun ForceCApp(context: Context) {
+    val prefs = remember { context.getSharedPreferences("forcec_preferences", Context.MODE_PRIVATE) }
+    var dark by remember { mutableStateOf(prefs.getBoolean("dark_theme", true)) }
     var page by remember { mutableStateOf(Page.Home) }
-    var demoConnected by remember { mutableStateOf(false) }
     var sorted by remember { mutableStateOf(false) }
     var pingChecked by remember { mutableStateOf(false) }
     var refreshCount by remember { mutableIntStateOf(0) }
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    var importedConfig by remember { mutableStateOf(loadImportedConfig(context)) }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            val result = importConfig(context, uri)
+            importMessage = result.second
+            if (result.first != null) importedConfig = result.first
+        }
+    }
+
     val bg = if (dark) DarkBg else LightBg
     val card = if (dark) DarkCard else LightCard
     val text = if (dark) Cream else Ink
@@ -67,21 +86,84 @@ private fun ForceCApp() {
             }
         }) { padding ->
             when (page) {
-                Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, demoConnected,
-                    onToggle = { demoConnected = !demoConnected }, onServers = { page = Page.Servers },
-                    onRefresh = { refreshCount++ }, refreshCount = refreshCount)
-                Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, servers,
+                Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
+                    onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
+                    onServers = { page = Page.Servers }, onRefresh = { refreshCount++ }, refreshCount = refreshCount)
+                Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, servers, importedConfig, importMessage,
                     pingChecked, sorted, onPing = { pingChecked = true }, onSort = { sorted = !sorted },
+                    onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onRefresh = { refreshCount++ }, refreshCount = refreshCount)
-                Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = { dark = it })
+                Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = {
+                    dark = it
+                    prefs.edit().putBoolean("dark_theme", it).apply()
+                })
             }
         }
     }
 }
 
+private fun loadImportedConfig(context: Context): ImportedConfig? {
+    val file = File(context.filesDir, "configs/active_config.txt")
+    if (!file.exists()) return null
+    val name = File(context.filesDir, "configs/active_name.txt").takeIf { it.exists() }?.readText()?.trim().orEmpty().ifBlank { "config.txt" }
+    val content = runCatching { file.readText() }.getOrNull() ?: return null
+    return ImportedConfig(name, detectFormat(name, content), countProfiles(content))
+}
+
+private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, String> {
+    return try {
+        val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')?.take(100)?.ifBlank { "imported_config.txt" } ?: "imported_config.txt"
+        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > MAX_CONFIG_BYTES) throw IOException("Файл больше 1 МБ")
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray()
+        } ?: throw IOException("Не удалось открыть файл")
+        val raw = bytes.toString(Charsets.UTF_8).trim()
+        if (raw.isBlank()) throw IOException("Файл пустой")
+        val recognized = raw.startsWith("{") || raw.startsWith("[") ||
+            raw.startsWith("vless://", true) || raw.startsWith("vmess://", true) ||
+            raw.startsWith("trojan://", true) || raw.startsWith("ss://", true) ||
+            raw.startsWith("https://", true) || raw.startsWith("http://", true) ||
+            raw.contains("\\nvless://", true) || raw.contains("\\nvmess://", true)
+        if (!recognized) throw IOException("Формат не распознан. Выберите JSON или текстовый файл с поддерживаемой конфигурацией.")
+        val folder = File(context.filesDir, "configs").apply { mkdirs() }
+        File(folder, "active_config.txt").writeText(raw)
+        File(folder, "active_name.txt").writeText(name)
+        val item = ImportedConfig(name, detectFormat(name, raw), countProfiles(raw))
+        item to "Конфигурация импортирована локально. VPN-движок ещё не подключён."
+    } catch (e: Exception) {
+        null to (e.message ?: "Не удалось импортировать конфигурацию")
+    }
+}
+
+private fun detectFormat(name: String, raw: String): String = when {
+    raw.startsWith("vless://", true) -> "VLESS-ссылка"
+    raw.startsWith("vmess://", true) -> "VMess-ссылка"
+    raw.startsWith("trojan://", true) -> "Trojan-ссылка"
+    raw.startsWith("ss://", true) -> "Shadowsocks-ссылка"
+    raw.startsWith("{") || raw.startsWith("[") || name.endsWith(".json", true) -> "JSON"
+    else -> "Текстовая конфигурация"
+}
+
+private fun countProfiles(raw: String): Int {
+    val lines = raw.lines().map { it.trim() }.filter {
+        it.startsWith("vless://", true) || it.startsWith("vmess://", true) ||
+            it.startsWith("trojan://", true) || it.startsWith("ss://", true)
+    }
+    return if (lines.isNotEmpty()) lines.size else 1
+}
+
 @Composable
-private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, connected: Boolean,
-                     onToggle: () -> Unit, onServers: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
+private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
+                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Spacer(Modifier.height(18.dp))
@@ -99,30 +181,42 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
         item {
             Surface(color = card, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(76.dp).background(if (connected) Color(0xFF355C43) else Brown.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Shield, null, tint = if (connected) Color(0xFFB7F0C5) else text, modifier = Modifier.size(42.dp))
+                    Box(Modifier.size(76.dp).background(Brown.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Shield, null, tint = text, modifier = Modifier.size(42.dp))
                     }
                     Spacer(Modifier.height(14.dp))
-                    Text(if (connected) "Демо включено" else "Защита не активна", color = text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text(if (connected) "Это демонстрация — VPN-туннель не запущен" else "Выберите сервер, чтобы продолжить", color = muted, fontSize = 12.sp)
+                    Text("VPN не подключён", color = text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                    Text("Импортируйте конфигурацию для подготовки", color = muted, fontSize = 12.sp)
                     Spacer(Modifier.height(20.dp))
-                    Button(onClick = onToggle, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(if (connected) Icons.Default.PowerSettingsNew else Icons.Default.Bolt, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (connected) "Отключить демо" else "Подключить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Button(onClick = onImport, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
+                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Импортировать конфиг", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
         item {
-            Text("Быстрый доступ", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Моя конфигурация", color = text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Description, null, tint = Brown, modifier = Modifier.size(28.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(config?.fileName ?: "Пока нет конфигурации", color = text, fontWeight = FontWeight.SemiBold)
+                        Text(config?.let { "${it.format} · профилей: ${it.profiles}" } ?: "Импортируйте .json или текстовую ссылку", color = muted, fontSize = 12.sp)
+                    }
+                    if (config != null) Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF63B77B))
+                }
+            }
+            if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
+        }
+        item {
             Surface(onClick = onServers, color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Public, null, tint = Brown, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Выбрать сервер", color = text, fontWeight = FontWeight.SemiBold)
-                        Text("Пинг и список локаций", color = muted, fontSize = 12.sp)
+                        Text("Серверы", color = text, fontWeight = FontWeight.SemiBold)
+                        Text("Проверка задержки и сортировка", color = muted, fontSize = 12.sp)
                     }
                     Icon(Icons.Default.ChevronRight, null, tint = muted)
                 }
@@ -132,7 +226,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
             OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                 Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(8.dp)); Text("Обновить конфигурации")
             }
-            if (refreshCount > 0) Text("Нажатий: $refreshCount · источник конфигураций ещё не настроен", color = muted, fontSize = 12.sp)
+            Text(if (refreshCount > 0) "Источник подписки не настроен — обновление не выполнено." else "Обновление будет доступно после настройки источника конфигов.", color = muted, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -140,8 +234,8 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
 
 @Composable
 private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Color, servers: List<Server>,
-                        pingChecked: Boolean, sorted: Boolean, onPing: () -> Unit, onSort: () -> Unit,
-                        onRefresh: () -> Unit, refreshCount: Int) {
+                        config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean,
+                        onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Серверы", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -156,10 +250,18 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
             }
         }
         Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+            Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(6.dp)); Text("Импортировать конфиг")
+        }
         OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
             Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Обновить конфигурации")
         }
-        Text(if (pingChecked) "Показаны примерные значения — реальные измерения появятся после подключения сетевого модуля." else "Это демонстрационные серверы. Нажмите проверку пинга для просмотра примера.", color = muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
+        Text(when {
+            config != null -> "Импортировано: ${config.fileName}. Серверы ниже пока демонстрационные."
+            pingChecked -> "Значения пинга демонстрационные; настоящие проверки появятся после подключения сетевого модуля."
+            else -> "Сейчас показаны демонстрационные серверы. Импортируйте свой конфиг."
+        }, color = muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
+        if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(servers) { server ->
                 Surface(color = card, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
@@ -175,7 +277,7 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
                 }
             }
         }
-        if (refreshCount > 0) Text("Обновление пока не настроено: добавьте источник конфигов.", color = muted, fontSize = 12.sp)
+        if (refreshCount > 0) Text("Обновление не выполнено: источник подписки не настроен.", color = muted, fontSize = 12.sp)
     }
 }
 
@@ -192,7 +294,7 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Тёмная тема", color = text, fontWeight = FontWeight.SemiBold)
-                    Text("Переключить тёмное и светлое оформление", color = muted, fontSize = 12.sp)
+                    Text("Выбор сохраняется после перезапуска приложения", color = muted, fontSize = 12.sp)
                 }
                 Switch(checked = dark, onCheckedChange = onTheme)
             }
@@ -200,9 +302,9 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
         Spacer(Modifier.height(12.dp))
         Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
-                Text("ForceCLIENT · 0.1.0", color = text, fontWeight = FontWeight.Bold)
+                Text("ForceCLIENT · 0.2.0", color = text, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
-                Text("Material 3 · ранний прототип интерфейса", color = muted, fontSize = 12.sp)
+                Text("Material 3 · импорт конфигураций · VPN-движок ещё не подключён", color = muted, fontSize = 12.sp)
             }
         }
     }
