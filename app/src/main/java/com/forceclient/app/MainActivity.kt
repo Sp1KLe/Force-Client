@@ -37,6 +37,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,7 +53,8 @@ import androidx.compose.ui.unit.sp
 import java.io.File
 import java.io.IOException
 
-private val Brown = Color(0xFFB9825D)
+private val LocalForceAccent = compositionLocalOf { Color(0xFFB9825D) }
+private val Brown: Color get() = Color(0xFFB9825D)
 private val Cream = Color(0xFFFFE0C2)
 private val DarkBg = Color(0xFF17110F)
 private val DarkCard = Color(0xFF261B17)
@@ -70,6 +78,9 @@ private data class ImportedConfig(val fileName: String, val format: String, val 
 private fun ForceCApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("forcec_preferences", Context.MODE_PRIVATE) }
     var dark by remember { mutableStateOf(prefs.getBoolean("dark_theme", true)) }
+    var accentArgb by remember { mutableIntStateOf(prefs.getInt("accent_color", 0xFFB9825D.toInt())) }
+    var showAccentDialog by remember { mutableStateOf(false) }
+    val accentColor = Color(accentArgb)
     var page by remember { mutableStateOf(Page.Home) }
     var sorted by remember { mutableStateOf(false) }
     var pingChecked by remember { mutableStateOf(false) }
@@ -141,8 +152,15 @@ private fun ForceCApp(context: Context) {
         }.start()
     }
 
-    MaterialTheme(colorScheme = if (dark) darkColorScheme(primary = Cream, secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)
-        else lightColorScheme(primary = Color(0xFF78492F), secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)) {
+    CompositionLocalProvider(LocalForceAccent provides accentColor) {
+    MaterialTheme(colorScheme = if (dark) darkColorScheme(primary = accentColor, secondary = accentColor, background = bg, surface = card, onBackground = text, onSurface = text)
+        else lightColorScheme(primary = accentColor, secondary = accentColor, background = bg, surface = card, onBackground = text, onSurface = text)) {
+        if (showAccentDialog) AccentColorDialog(
+            initialColor = accentColor,
+            dark = dark,
+            onDismiss = { showAccentDialog = false },
+            onApply = { selected -> accentArgb = selected.toArgb(); prefs.edit().putInt("accent_color", accentArgb).apply(); showAccentDialog = false }
+        )
         if (showUrlDialog) {
             AlertDialog(
                 onDismissRequest = { if (!urlLoading) showUrlDialog = false },
@@ -202,12 +220,13 @@ private fun ForceCApp(context: Context) {
                     pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
-                Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = {
+                Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, accentColor, onAccent = { showAccentDialog = true }, onPreset = { accentArgb = it; prefs.edit().putInt("accent_color", it).apply() }, onTheme = {
                     dark = it
                     prefs.edit().putBoolean("dark_theme", it).apply()
                 })
             }
         }
+    }
     }
 }
 
@@ -524,12 +543,38 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
 }
 
 @Composable
-private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Color, dark: Boolean, onTheme: (Boolean) -> Unit) {
+private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Color, dark: Boolean, accentColor: Color, onAccent: () -> Unit, onPreset: (Int) -> Unit, onTheme: (Boolean) -> Unit) {
     Column(modifier.fillMaxSize().padding(20.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Настройки", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Text("Сделай ForceC удобным для себя", color = muted, fontSize = 14.sp)
         Spacer(Modifier.height(22.dp))
+        Text("ВНЕШНИЙ ВИД", color = muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        Spacer(Modifier.height(9.dp))
+        Surface(color = card, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Акцентный цвет", color = text, fontWeight = FontWeight.SemiBold)
+                Text("Меняет основные кнопки и выделения", color = muted, fontSize = 12.sp)
+                Spacer(Modifier.height(13.dp))
+                val presets = listOf("Карамель" to 0xFFB9825D, "Синий" to 0xFF75A7FF, "Мята" to 0xFF72CBB0, "Лиловый" to 0xFFB8A0FF, "Розовый" to 0xFFFF91B5, "Янтарь" to 0xFFFFB74D, "Рубин" to 0xFFE87979, "Изумруд" to 0xFF62B98D)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    presets.forEach { (label, value) ->
+                        val color = Color(value.toInt())
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(onClick = { onPreset(value.toInt()) }, shape = CircleShape, color = color, modifier = Modifier.size(42.dp), border = if (accentColor == color) BorderStroke(3.dp, text) else null) {
+                                Box(contentAlignment = Alignment.Center) { if (accentColor == color) Icon(Icons.Default.Check, null, tint = if (color.luminance() > .5f) Color.Black else Color.White) }
+                            }
+                            Spacer(Modifier.height(4.dp)); Text(label, color = muted, fontSize = 10.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onAccent, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp)) {
+                    Icon(Icons.Default.Palette, null); Spacer(Modifier.width(8.dp)); Text("Свой цвет…")
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
         Surface(color = card, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (dark) Icons.Default.DarkMode else Icons.Default.LightMode, null, tint = Brown, modifier = Modifier.size(28.dp))
@@ -551,3 +596,52 @@ private fun SettingsPage(modifier: Modifier, card: Color, text: Color, muted: Co
         }
     }
 }
+
+@Composable
+private fun AccentColorDialog(initialColor: Color, dark: Boolean, onDismiss: () -> Unit, onApply: (Color) -> Unit) {
+    val hsv = remember(initialColor) {
+        val values = FloatArray(3)
+        android.graphics.Color.colorToHSV(initialColor.toArgb(), values)
+        values
+    }
+    var hue by remember(initialColor) { mutableFloatStateOf(hsv[0]) }
+    var saturation by remember(initialColor) { mutableFloatStateOf(hsv[1].coerceAtLeast(.2f)) }
+    var brightness by remember(initialColor) { mutableFloatStateOf(hsv[2].coerceAtLeast(.25f)) }
+    val selected = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness)))
+    val panel = if (dark) Color(0xFF261B17) else Color(0xFFFFF8F3)
+    val ink = if (dark) Color(0xFFFFE0C2) else Color(0xFF281A14)
+    val muted = if (dark) Color(0xFFB9A49A) else Color(0xFF766158)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = panel,
+        shape = RoundedCornerShape(30.dp),
+        title = {
+            Column {
+                Text("Твой акцент", color = ink, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Настрой цвет интерфейса под себя", color = muted, fontSize = 13.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(color = selected, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().height(92.dp)) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Icon(Icons.Default.Palette, null, tint = if (selected.luminance() > .5f) Color.Black else Color.White)
+                        Text("#" + selected.toArgb().toUInt().toString(16).takeLast(6).uppercase(), color = if (selected.luminance() > .5f) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text("Оттенок", color = ink, fontWeight = FontWeight.SemiBold)
+                Slider(value = hue, onValueChange = { hue = it }, valueRange = 0f..360f)
+                Text("Насыщенность", color = ink, fontWeight = FontWeight.SemiBold)
+                Slider(value = saturation, onValueChange = { saturation = it }, valueRange = 0f..1f)
+                Text("Яркость", color = ink, fontWeight = FontWeight.SemiBold)
+                Slider(value = brightness, onValueChange = { brightness = it }, valueRange = .15f..1f)
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onApply(selected) }, shape = RoundedCornerShape(14.dp)) { Text("Применить") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+
