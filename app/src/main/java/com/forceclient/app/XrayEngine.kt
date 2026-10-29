@@ -1,6 +1,5 @@
 package com.forceclient.app
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -27,7 +26,8 @@ object XrayEngine {
                     it.name.equals("invoke", ignoreCase = true) &&
                         it.parameterTypes.size == 1 &&
                         it.parameterTypes[0] == String::class.java
-                } ?: run {
+                }
+                if (method == null) {
                     errors += "$name: invoke(String) not found"
                     continue
                 }
