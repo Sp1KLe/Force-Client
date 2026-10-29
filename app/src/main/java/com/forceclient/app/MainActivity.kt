@@ -1,6 +1,11 @@
 package com.forceclient.app
 
 import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.content.Intent
+import android.app.Activity
+import android.net.VpnService
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -90,6 +95,57 @@ private fun ForceCApp(context: Context) {
     var refreshing by remember { mutableStateOf(false) }
     var pinging by remember { mutableStateOf(false) }
     var servers by remember { mutableStateOf(loadServerProfiles(context)) }
+    var vpnState by remember { mutableStateOf(ForceVpnService.STATE_DISCONNECTED) }
+
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == ForceVpnService.ACTION_STATE) {
+                    vpnState = intent.getStringExtra(ForceVpnService.EXTRA_STATE) ?: ForceVpnService.STATE_DISCONNECTED
+                    intent.getStringExtra(ForceVpnService.EXTRA_MESSAGE)?.let { importMessage = it }
+                }
+            }
+        }
+        val filter = IntentFilter(ForceVpnService.ACTION_STATE)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
+    }
+
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val start = Intent(context, ForceVpnService::class.java).setAction(ForceVpnService.ACTION_START)
+            if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(start) else context.startService(start)
+            vpnState = "connecting"
+            importMessage = "Запускаю Xray-core…"
+        } else {
+            importMessage = "Для подключения нужно разрешить Android VPN-соединение."
+        }
+    }
+
+    fun toggleVpn() {
+        if (vpnState == ForceVpnService.STATE_CONNECTED || vpnState == "connecting") {
+            context.startService(Intent(context, ForceVpnService::class.java).setAction(ForceVpnService.ACTION_STOP))
+            vpnState = ForceVpnService.STATE_DISCONNECTED
+            return
+        }
+        if (importedConfig == null) {
+            importMessage = "Сначала импортируйте рабочий профиль или подписку."
+            return
+        }
+        val prepare = VpnService.prepare(context)
+        if (prepare == null) {
+            val start = Intent(context, ForceVpnService::class.java).setAction(ForceVpnService.ACTION_START)
+            if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(start) else context.startService(start)
+            vpnState = "connecting"
+        } else {
+            vpnPermissionLauncher.launch(prepare)
+        }
+    }
 
     fun refreshSubscription() {
         val savedUrl = prefs.getString("subscription_url", null)
@@ -212,7 +268,7 @@ private fun ForceCApp(context: Context) {
             when (page) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
-                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing)
+                    onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount, refreshing = refreshing, vpnState = vpnState, onConnect = { toggleVpn() })
                 Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
                     pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
@@ -386,7 +442,7 @@ private fun countProfiles(raw: String): Int {
 
 @Composable
 private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color, config: ImportedConfig?,
-                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean) {
+                     importMessage: String?, onImport: () -> Unit, onServers: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int, refreshing: Boolean, vpnState: String, onConnect: () -> Unit) {
     val pulse by rememberInfiniteTransition(label = "connectionPulse").animateFloat(
         initialValue = 0.94f, targetValue = 1.04f,
         animationSpec = infiniteRepeatable(tween(1800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
@@ -421,22 +477,28 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(7.dp).background(Color(0xFFE0A05F), CircleShape))
                             Spacer(Modifier.width(7.dp))
-                            Text("НЕ ПОДКЛЮЧЕНО", color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "ЗАЩИЩЕНО"; "connecting" -> "ПОДКЛЮЧЕНИЕ…"; ForceVpnService.STATE_ERROR -> "ОШИБКА"; else -> "НЕ ПОДКЛЮЧЕНО" }, color = text, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("Готов к защищённому соединению?", color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "Соединение защищено"; "connecting" -> "Подключаемся к серверу…"; ForceVpnService.STATE_ERROR -> "Не удалось подключиться"; else -> "Готов к защищённому соединению?" }, color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(5.dp))
-                    Text("Добавь профиль, чтобы подготовить подключение", color = muted, fontSize = 12.sp)
+                    Text(when (vpnState) { ForceVpnService.STATE_CONNECTED -> "Трафик передаётся через Xray-core"; "connecting" -> "Настраиваем VPN-туннель Android"; else -> "Импортируй профиль, затем подключись" }, color = muted, fontSize = 12.sp)
                     Spacer(Modifier.height(20.dp))
-                    Button(onClick = onImport, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
-                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Добавить конфигурацию", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Button(onClick = onConnect, enabled = vpnState != "connecting", modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp)) {
+                        Icon(if (vpnState == ForceVpnService.STATE_CONNECTED) Icons.Default.LinkOff else Icons.Default.Shield, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (vpnState == ForceVpnService.STATE_CONNECTED) "Отключиться" else if (vpnState == "connecting") "Подключение…" else "Подключиться", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
+                        Icon(Icons.Default.FileOpen, null); Spacer(Modifier.width(8.dp)); Text("Добавить конфигурацию")
                     }
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = onImportUrl, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(18.dp)) {
                         Icon(Icons.Default.Link, null); Spacer(Modifier.width(8.dp)); Text("Импортировать по ссылке")
                     }
-                    Text("Реальный VPN-движок ещё не подключён.", color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
+                    Text("Сетевой движок: Xray-core · Android VPNService", color = muted, fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
                 }
             }
         }
