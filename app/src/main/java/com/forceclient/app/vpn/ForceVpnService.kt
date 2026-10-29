@@ -60,15 +60,15 @@ class ForceVpnService : VpnService() {
                             ?.invoke(null, protectController, "1.1.1.1:53")
                     }
                 }
-                val converted = invokeCore(core, "convertShareLinksToXrayJson", JSONObject().put("text", raw))
-                val outbounds = converted.optJSONObject("data")?.optJSONArray("outbounds")
-                val config = if (raw.startsWith("{") && runCatching { JSONObject(raw).has("outbounds") }.getOrDefault(false)) {
-                    JSONObject(raw)
+                var config = if (raw.startsWith("{") && runCatching { JSONObject(raw).has("outbounds") }.getOrDefault(false)) {
+                    normalizeConfig(JSONObject(raw))
                 } else {
+                    val converted = invokeCore(core, "convertShareLinksToXrayJson", JSONObject().put("text", raw))
+                    val outbounds = converted.optJSONObject("data")?.optJSONArray("outbounds")
                     if (outbounds == null || outbounds.length() == 0) {
                         throw IllegalStateException(converted.optString("error").ifBlank { "Не удалось разобрать профиль Xray." })
                     }
-                    buildConfig(outbounds)
+                    normalizeConfig(buildConfig(outbounds))
                 }
 
                 val builder = Builder()
@@ -140,6 +140,40 @@ class ForceVpnService : VpnService() {
         }, "ForceC-Xray-start").start()
     }
 
+    private fun normalizeConfig(source: JSONObject): JSONObject {
+        val config = JSONObject(source.toString())
+        val outbounds = config.optJSONArray("outbounds")
+            ?: throw IllegalStateException("Xray JSON не содержит outbounds.")
+        if (outbounds.length() == 0) throw IllegalStateException("В конфигурации нет серверов.")
+
+        var firstTag = outbounds.optJSONObject(0)?.optString("tag").orEmpty()
+        if (firstTag.isBlank()) {
+            firstTag = "proxy"
+            outbounds.optJSONObject(0)?.put("tag", firstTag)
+        }
+
+        config.put("inbounds", JSONArray().put(
+            JSONObject()
+                .put("tag", "forcec-tun")
+                .put("protocol", "tun")
+                .put("settings", JSONObject()
+                    .put("name", "ForceCLIENT")
+                    .put("mtu", 1500)
+                    .put("gateway", JSONArray().put("10.111.0.1/30").put("fd00:fc::1/126")))
+        ))
+
+        val routing = config.optJSONObject("routing") ?: JSONObject()
+        val rules = routing.optJSONArray("rules") ?: JSONArray()
+        rules.put(JSONObject()
+            .put("type", "field")
+            .put("network", "tcp,udp")
+            .put("outboundTag", firstTag))
+        routing.put("rules", rules)
+        config.put("routing", routing)
+        if (!config.has("log")) config.put("log", JSONObject().put("loglevel", "warning"))
+        return config
+    }
+
     private fun buildConfig(sourceOutbounds: JSONArray): JSONObject {
         val outbounds = JSONArray()
         var firstTag = "proxy"
@@ -178,7 +212,7 @@ class ForceVpnService : VpnService() {
         val response = invoke.invoke(null, request.toString()) as? String
             ?: throw IllegalStateException("libXray вернул пустой ответ.")
         val parsed = JSONObject(response)
-        if (!parsed.optBoolean("success", false) && method != "runXray") {
+        if (!parsed.optBoolean("success", false)) {
             throw IllegalStateException(parsed.optString("error").ifBlank { "Ошибка libXray при $method." })
         }
         return parsed
