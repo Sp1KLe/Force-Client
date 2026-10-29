@@ -159,8 +159,16 @@ object XrayEngine {
             val existing = root?.optJSONArray("outbounds")
             if (existing != null && existing.length() > 0) {
                 val copy = org.json.JSONArray()
+                val nonProxy = setOf("freedom", "blackhole", "dns", "loopback", "tun")
                 for (i in 0 until existing.length()) {
-                    existing.optJSONObject(i)?.let { copy.put(JSONObject(it.toString())) }
+                    val outbound = existing.optJSONObject(i) ?: continue
+                    val protocol = outbound.optString("protocol").lowercase()
+                    val settings = outbound.optJSONObject("settings") ?: JSONObject()
+                    val hasEndpoint = settings.optJSONArray("vnext") != null ||
+                        settings.optJSONArray("servers") != null
+                    if (protocol !in nonProxy && hasEndpoint) {
+                        copy.put(JSONObject(outbound.toString()))
+                    }
                 }
                 if (copy.length() > 0) return copy
             }
