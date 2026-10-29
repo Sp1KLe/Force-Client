@@ -187,30 +187,22 @@ object XrayEngine {
     }
 
     fun selectFastestProfile(text: String): FastestProfile {
-        val outbounds = loadOutbounds(text)
-        normalizeTags(outbounds)
-        val reachable = mutableListOf<FastestProfile>()
-        for (i in 0 until outbounds.length()) {
-            val outbound = outbounds.optJSONObject(i) ?: continue
-            val endpoint = endpointOf(outbound)
-            if (endpoint.first.isBlank() || endpoint.second !in 1..65535) continue
-            runCatching {
-                val elapsed = Socket().use { socket ->
-                    val started = System.nanoTime()
-                    socket.connect(InetSocketAddress(endpoint.first, endpoint.second), 2500)
-                    ((System.nanoTime() - started) / 1_000_000L).toInt()
-                }
-                reachable += FastestProfile(
-                    JSONObject(outbound.toString()),
-                    outbound.optString("tag"),
-                    endpoint.first,
-                    endpoint.second,
-                    elapsed
-                )
-            }
-        }
-        return reachable.minByOrNull { it.delayMs }
-            ?: throw IllegalStateException("TCP-проверка не нашла доступных серверов. Проверьте сеть или выберите другой узел.")
+        // TCP port latency is only a reachability hint, not a proxy handshake.
+        // Use Xray's own probe to select a node that can actually establish a proxy request.
+        val best = pingProfiles(text)
+            .filter { it.success && it.delayMs != null }
+            .minByOrNull { it.delayMs!! }
+            ?: throw IllegalStateException(
+                "Конфигурация импортирована, но Xray не смог проверить ни один узел. " +
+                    "Проверьте тип профиля, доступ к серверам и попробуйте выбрать сервер вручную."
+            )
+        return FastestProfile(
+            outbound = JSONObject(best.outbound.toString()),
+            tag = best.tag,
+            host = best.host,
+            port = best.port,
+            delayMs = best.delayMs!!
+        )
     }
 
     private fun loadOutbounds(text: String): org.json.JSONArray {
