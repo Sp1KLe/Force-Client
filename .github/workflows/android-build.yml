@@ -34,7 +34,7 @@ jobs:
           curl --fail --location --retry 3 https://github.com/XTLS/libXray/releases/download/v26.10.29/libxray-android.zip -o /tmp/libxray-android.zip
           unzip -l /tmp/libxray-android.zip
           unzip -j /tmp/libxray-android.zip '*.aar' -d app/libs
-          test -f app/libs/libxray.aar
+          test -f app/libs/libXray.aar
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug --stacktrace
