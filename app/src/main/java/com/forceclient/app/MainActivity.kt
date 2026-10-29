@@ -8,6 +8,8 @@ import android.os.Looper
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.Socket
+import java.net.InetSocketAddress
+import org.json.JSONObject
 import java.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,7 +51,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Page { Home, Servers, Settings }
-private data class Server(val name: String, val region: String, val ping: Int?)
+private data class Server(val name: String, val region: String, val ping: Int?, val host: String = "", val port: Int = 0)
 private data class ImportedConfig(val fileName: String, val format: String, val profiles: Int)
 
 @Composable
@@ -66,6 +68,8 @@ private fun ForceCApp(context: Context) {
     var subscriptionUrl by remember { mutableStateOf("") }
     var urlLoading by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var pinging by remember { mutableStateOf(false) }
+    var servers by remember { mutableStateOf(loadServerProfiles(context)) }
 
     fun refreshSubscription() {
         val savedUrl = prefs.getString("subscription_url", null)
@@ -81,7 +85,7 @@ private fun ForceCApp(context: Context) {
             Handler(Looper.getMainLooper()).post {
                 refreshing = false
                 importMessage = if (result.first != null) "Подписка обновлена: " + result.first.profiles + " профилей." else result.second
-                if (result.first != null) importedConfig = result.first
+                if (result.first != null) { importedConfig = result.first; servers = loadServerProfiles(context) }
                 refreshCount++
             }
         }.start()
@@ -99,12 +103,31 @@ private fun ForceCApp(context: Context) {
     val card = if (dark) DarkCard else LightCard
     val text = if (dark) Cream else Ink
     val muted = if (dark) Color(0xFFB9A49A) else Color(0xFF766158)
-    val servers = listOf(
-        Server("Нидерланды · Амстердам", "ЕВРОПА", if (pingChecked) 24 else null),
-        Server("Германия · Франкфурт", "ЕВРОПА", if (pingChecked) 38 else null),
-        Server("США · Нью-Йорк", "АМЕРИКА", if (pingChecked) 112 else null),
-        Server("Сингапур", "АЗИЯ", if (pingChecked) 186 else null)
-    ).let { if (sorted && pingChecked) it.sortedBy { s -> s.ping ?: Int.MAX_VALUE } else it }
+    val visibleServers = if (sorted) servers.sortedBy { it.ping ?: Int.MAX_VALUE } else servers
+    fun checkPings() {
+        if (pinging) return
+        if (servers.isEmpty()) {
+            importMessage = "Импортируйте конфигурацию, чтобы проверить её серверы."
+            return
+        }
+        pinging = true
+        Thread {
+            val checked = servers.map { server ->
+                val started = System.nanoTime()
+                val ping = runCatching {
+                    Socket().use { it.connect(InetSocketAddress(server.host, server.port), 2500) }
+                    ((System.nanoTime() - started) / 1_000_000L).toInt().coerceAtLeast(1)
+                }.getOrNull()
+                server.copy(ping = ping)
+            }
+            Handler(Looper.getMainLooper()).post {
+                servers = checked
+                pingChecked = true
+                pinging = false
+                importMessage = "Показан TCP-пинг узлов, не скорость VPN-туннеля."
+            }
+        }.start()
+    }
 
     MaterialTheme(colorScheme = if (dark) darkColorScheme(primary = Cream, secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)
         else lightColorScheme(primary = Color(0xFF78492F), secondary = Brown, background = bg, surface = card, onBackground = text, onSurface = text)) {
@@ -139,6 +162,7 @@ private fun ForceCApp(context: Context) {
                                 importMessage = result.second
                                 if (result.first != null) {
                                     importedConfig = result.first
+                                    servers = loadServerProfiles(context)
                                     prefs.edit().putString("subscription_url", url).apply()
                                     showUrlDialog = false
                                 }
@@ -162,8 +186,8 @@ private fun ForceCApp(context: Context) {
                 Page.Home -> HomePage(Modifier.padding(padding), card, text, muted, importedConfig, importMessage,
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onServers = { page = Page.Servers }, onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
-                Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, servers, importedConfig, importMessage,
-                    pingChecked, sorted, onPing = { pingChecked = true }, onSort = { sorted = !sorted },
+                Page.Servers -> ServersPage(Modifier.padding(padding), card, text, muted, visibleServers, importedConfig, importMessage,
+                    pingChecked, sorted, pinging, onPing = { checkPings() }, onSort = { sorted = !sorted },
                     onImport = { filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream", "*/*")) },
                     onImportUrl = { showUrlDialog = true }, onRefresh = { refreshSubscription() }, refreshCount = refreshCount)
                 Page.Settings -> SettingsPage(Modifier.padding(padding), card, text, muted, dark, onTheme = {
@@ -181,6 +205,11 @@ private fun loadImportedConfig(context: Context): ImportedConfig? {
     val name = File(context.filesDir, "configs/active_name.txt").takeIf { it.exists() }?.readText()?.trim().orEmpty().ifBlank { "config.txt" }
     val content = runCatching { file.readText() }.getOrNull() ?: return null
     return ImportedConfig(name, detectFormat(name, content), countProfiles(content))
+}
+
+private fun loadServerProfiles(context: Context): List<Server> {
+    val file = File(context.filesDir, "configs/active_config.txt")
+    return if (file.exists()) parseServerProfiles(file.readText()) else emptyList()
 }
 
 private fun importConfig(context: Context, uri: Uri): Pair<ImportedConfig?, String> {
@@ -270,6 +299,36 @@ private fun importConfigFromUrl(context: Context, value: String): Pair<ImportedC
     } finally {
         connection?.disconnect()
     }
+}
+
+private fun parseServerProfiles(raw: String): List<Server> {
+    val found = mutableListOf<Server>()
+    raw.lines().map { it.trim() }.filter { it.isNotEmpty() }.forEachIndexed { index, line ->
+        runCatching {
+            var host: String? = null
+            var port: Int? = null
+            var name = "Узел " + (index + 1)
+            if (line.startsWith("vmess://", true)) {
+                val payload = line.substringAfter("vmess://").substringBefore("#")
+                val decoded = Base64.getMimeDecoder().decode(payload.replace("-", "+").replace("_", "/")).toString(Charsets.UTF_8)
+                val json = JSONObject(decoded)
+                host = json.optString("add").takeIf { it.isNotBlank() }
+                port = json.optString("port").toIntOrNull()
+                name = json.optString("ps", name).ifBlank { name }
+            } else if (line.startsWith("vless://", true) || line.startsWith("trojan://", true) || line.startsWith("ss://", true)) {
+                val uri = Uri.parse(line)
+                host = uri.host
+                port = uri.port.takeIf { it > 0 }
+                name = uri.fragment?.let { Uri.decode(it) }?.ifBlank { null } ?: name
+                if (host.isNullOrBlank() && line.startsWith("ss://", true)) {
+                    val auth = line.substringAfter("ss://").substringBefore("#").substringBefore("?").substringAfterLast("@", "")
+                    if (auth.contains(":")) { host = auth.substringBeforeLast(":").removeSurrounding("[", "]"); port = auth.substringAfterLast(":").toIntOrNull() }
+                }
+            }
+            if (!host.isNullOrBlank() && port != null && port in 1..65535) found.add(Server(name, host, null, host, port))
+        }
+    }
+    return found.distinctBy { it.host + ":" + it.port }
 }
 
 private fun looksLikeConfig(raw: String): Boolean {
@@ -374,7 +433,7 @@ private fun HomePage(modifier: Modifier, card: Color, text: Color, muted: Color,
 
 @Composable
 private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Color, servers: List<Server>,
-                        config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean,
+                        config: ImportedConfig?, importMessage: String?, pingChecked: Boolean, sorted: Boolean, pinging: Boolean,
                         onPing: () -> Unit, onSort: () -> Unit, onImport: () -> Unit, onImportUrl: () -> Unit, onRefresh: () -> Unit, refreshCount: Int) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -382,8 +441,8 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
         Text("Выберите подходящую локацию", color = muted)
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onPing, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text("Проверить пинг")
+            Button(onClick = onPing, enabled = !pinging && servers.isNotEmpty(), modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Default.Speed, null); Spacer(Modifier.width(6.dp)); Text(if (pinging) "Проверяю…" else "TCP-пинг")
             }
             OutlinedButton(onClick = onSort, shape = RoundedCornerShape(14.dp)) {
                 Icon(Icons.Default.Sort, null); Text(if (sorted) "Сбросить" else "Сортировать")
@@ -400,9 +459,8 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
             Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Обновить конфигурации")
         }
         Text(when {
-            config != null -> "Импортировано: ${config.fileName}. Серверы ниже пока демонстрационные."
-            pingChecked -> "Значения пинга демонстрационные; настоящие проверки появятся после подключения сетевого модуля."
-            else -> "Сейчас показаны демонстрационные серверы. Импортируйте свой конфиг."
+            config != null -> "Импортировано: ${config.fileName}. Узлы извлечены из конфигурации."
+            else -> "Импортируйте конфиг или подписку, чтобы увидеть серверы."
         }, color = muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
         if (importMessage != null) Text(importMessage, color = muted, fontSize = 12.sp)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -413,13 +471,14 @@ private fun ServersPage(modifier: Modifier, card: Color, text: Color, muted: Col
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(server.name, color = text, fontWeight = FontWeight.SemiBold)
-                            Text(server.region, color = muted, fontSize = 11.sp)
+                            Text(server.host + ":" + server.port, color = muted, fontSize = 11.sp)
                         }
                         Text(server.ping?.let { "$it ms" } ?: "— ms", color = text, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
+        if (pinging) Text("Проверяю TCP-доступность узлов…", color = muted, fontSize = 12.sp)
         if (refreshing) Text("Обновляю подписку…", color = muted, fontSize = 12.sp)
     }
 }
