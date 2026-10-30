@@ -187,21 +187,32 @@ object XrayEngine {
     }
 
     fun selectFastestProfile(text: String): FastestProfile {
-        // TCP port latency is only a reachability hint, not a proxy handshake.
-        // Use Xray's own probe to select a node that can actually establish a proxy request.
-        val best = pingProfiles(text)
-            .filter { it.success && it.delayMs != null }
+        // TCP reachability is a hint only, but it must not block connection startup:
+        // some valid proxy servers reject probe URLs while accepting real client sessions.
+        val profiles = listProfiles(text)
+        require(profiles.isNotEmpty()) {
+            "Конфигурация импортирована, но из неё не удалось извлечь серверы. Проверьте формат профиля."
+        }
+        val checked = profiles.map { profile ->
+            var delay: Int? = null
+            runCatching {
+                Socket().use { socket ->
+                    val started = System.nanoTime()
+                    socket.connect(InetSocketAddress(profile.host, profile.port), 2500)
+                    delay = ((System.nanoTime() - started) / 1_000_000L).toInt()
+                }
+            }
+            profile.copy(delayMs = delay, success = delay != null)
+        }
+        val best = checked.filter { it.success && it.delayMs != null }
             .minByOrNull { it.delayMs!! }
-            ?: throw IllegalStateException(
-                "Конфигурация импортирована, но Xray не смог проверить ни один узел. " +
-                    "Проверьте тип профиля, доступ к серверам и попробуйте выбрать сервер вручную."
-            )
+            ?: checked.first()
         return FastestProfile(
             outbound = JSONObject(best.outbound.toString()),
             tag = best.tag,
             host = best.host,
             port = best.port,
-            delayMs = best.delayMs!!
+            delayMs = best.delayMs ?: -1
         )
     }
 
