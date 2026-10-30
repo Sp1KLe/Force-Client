@@ -410,15 +410,15 @@ private fun importConfigFromUrl(context: Context, value: String): Pair<ImportedC
             }
             output.toByteArray()
         }
-        var raw = bytes.toString(Charsets.UTF_8).trim()
+        val raw = decodeSubscriptionPayload(bytes.toString(Charsets.UTF_8))
         if (raw.isBlank()) throw IOException("Ссылка вернула пустой ответ.")
         if (!looksLikeConfig(raw)) {
-            val decoded = runCatching {
-                Base64.getMimeDecoder().decode(raw.replace("-", "+").replace("_", "/")).toString(Charsets.UTF_8).trim()
-            }.getOrNull()
-            if (decoded != null && looksLikeConfig(decoded)) raw = decoded
+            val lower = raw.lowercase()
+            if (lower.contains("proxies:") || lower.contains("proxy-groups:")) {
+                throw IOException("Ссылка отдаёт подписку Clash/Mihomo YAML. Этот формат пока не преобразуется в Xray автоматически; нужен экспорт ссылок VLESS/VMess/Trojan/SS или Xray JSON.")
+            }
+            throw IOException("Ссылка скачалась, но в ответе не найдены ссылки VLESS/VMess/Trojan/SS или Xray JSON. Возможно, сервер отдаёт страницу входа или формат другой подписки.")
         }
-        if (!looksLikeConfig(raw)) throw IOException("По ссылке не найдена подписка с поддерживаемыми конфигурациями (VLESS, VMess, Trojan, Shadowsocks или JSON).")
         val name = uri.host?.take(80)?.let { "$it-subscription.txt" } ?: "subscription.txt"
         val folder = File(context.filesDir, "configs").apply { mkdirs() }
         File(folder, "active_config.txt").writeText(raw)
@@ -430,6 +430,26 @@ private fun importConfigFromUrl(context: Context, value: String): Pair<ImportedC
     } finally {
         connection?.disconnect()
     }
+}
+
+/** Decode common Base64 subscription responses, including URL-safe and nested encoding. */
+private fun decodeSubscriptionPayload(input: String): String {
+    var current = input.trim().removePrefix("\uFEFF").trim()
+    repeat(3) {
+        if (looksLikeConfig(current)) return current
+        val compact = current.filterNot { it.isWhitespace() }
+        if (compact.isBlank()) return current
+        val normalized = compact.replace('-', '+').replace('_', '/')
+        val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
+        val decoded = runCatching {
+            Base64.getDecoder().decode(padded).toString(Charsets.UTF_8)
+        }.recoverCatching {
+            Base64.getMimeDecoder().decode(current).toString(Charsets.UTF_8)
+        }.getOrNull()?.trim()?.removePrefix("\uFEFF")?.trim() ?: return current
+        if (decoded.isBlank() || decoded == current) return current
+        current = decoded
+    }
+    return current
 }
 
 private fun parseServerProfiles(raw: String): List<Server> {
