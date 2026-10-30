@@ -63,7 +63,14 @@ class ForceVpnService : VpnService() {
                 val selectedHost = prefs.getString("selected_server_host", null)
                 val selectedPort = prefs.getInt("selected_server_port", 0)
                 val selected = if (!selectedHost.isNullOrBlank() && selectedPort > 0) {
-                    com.forceclient.app.XrayEngine.selectProfileByEndpoint(raw, selectedHost, selectedPort)
+                    // A saved endpoint may be stale after the subscription is updated.
+                    // Try it first, then fall back to automatic selection instead of
+                    // aborting with "server not found" while the imported config exists.
+                    runCatching {
+                        com.forceclient.app.XrayEngine.selectProfileByEndpoint(raw, selectedHost, selectedPort)
+                    }.getOrElse {
+                        com.forceclient.app.XrayEngine.selectFastestProfile(raw)
+                    }
                 } else {
                     com.forceclient.app.XrayEngine.selectFastestProfile(raw)
                 }
