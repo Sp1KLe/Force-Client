@@ -228,9 +228,12 @@ object XrayEngine {
                     val outbound = existing.optJSONObject(i) ?: continue
                     val protocol = outbound.optString("protocol").lowercase()
                     val settings = outbound.optJSONObject("settings") ?: JSONObject()
-                    val hasEndpoint = settings.optJSONArray("vnext") != null ||
-                        settings.optJSONArray("servers") != null
-                    if (protocol !in nonProxy && hasEndpoint) {
+                    val hasEndpoint = endpointOf(outbound).let { it.first.isNotBlank() && it.second in 1..65535 }
+                    // Keep recognized proxy protocols even if a libXray version uses
+                    // a slightly different endpoint representation; endpointOf handles
+                    // the common Xray and sing-box-style fields below.
+                    val knownProxy = protocol in setOf("vless", "vmess", "trojan", "shadowsocks", "socks", "http", "wireguard")
+                    if (protocol !in nonProxy && (hasEndpoint || knownProxy)) {
                         copy.put(JSONObject(outbound.toString()))
                     }
                 }
@@ -261,10 +264,22 @@ object XrayEngine {
         val vnext = settings.optJSONArray("vnext")?.optJSONObject(0)
         val server = settings.optJSONArray("servers")?.optJSONObject(0)
         val host = vnext?.optString("address").orEmpty().ifBlank {
-            server?.optString("address").orEmpty()
+            server?.optString("address").orEmpty().ifBlank {
+                server?.optString("server").orEmpty().ifBlank {
+                    settings.optString("address").orEmpty().ifBlank {
+                        outbound.optString("server").orEmpty().ifBlank {
+                            outbound.optString("address").orEmpty()
+                        }
+                    }
+                }
+            }
         }
         val port = (vnext?.optInt("port", 0) ?: 0).takeIf { it > 0 }
-            ?: (server?.optInt("port", 0) ?: 0)
+            ?: (server?.optInt("port", 0) ?: 0).takeIf { it > 0 }
+            ?: settings.optInt("server_port", 0).takeIf { it > 0 }
+            ?: settings.optInt("port", 0).takeIf { it > 0 }
+            ?: outbound.optInt("server_port", 0).takeIf { it > 0 }
+            ?: outbound.optInt("port", 0)
         return host to port
     }
 
